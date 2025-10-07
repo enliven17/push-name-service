@@ -46,20 +46,26 @@ export default function PushNameService() {
 
           // Initialize contract
           const contractAddresses = getContractAddresses(chainId)
-          if (contractAddresses?.nameService) {
-            // Contract initialization will be implemented when we have a signer
-            // const contractInstance = new PushNameServiceContract(
-            //   contractAddresses.nameService,
-            //   signer,
-            //   chainId,
-            //   pushConfig
-            // )
-            // await contractInstance.initialize()
-            // setContract(contractInstance)
+          if (contractAddresses?.nameService && window.ethereum) {
+            try {
+              const provider = new ethers.BrowserProvider(window.ethereum)
+              const signer = await provider.getSigner()
+              
+              const contractInstance = new PushNameServiceContract(
+                contractAddresses.nameService,
+                signer,
+                chainId,
+                pushConfig
+              )
+              await contractInstance.initialize()
+              setContract(contractInstance)
 
-            // Get registration cost
-            // const cost = await contractInstance.getRegistrationCost()
-            // setRegistrationCost(ethers.formatEther(cost))
+              // Get registration cost
+              const cost = await contractInstance.getRegistrationCost()
+              setRegistrationCost(ethers.formatEther(cost))
+            } catch (error) {
+              console.error('Failed to initialize contract:', error)
+            }
           }
         } catch (error) {
           console.error('Failed to initialize services:', error)
@@ -98,7 +104,7 @@ export default function PushNameService() {
           name: cleanName,
           isAvailable: false,
           owner: domainInfo.owner,
-          expiresAt: Number(domainInfo.expiration),
+          expiresAt: Number(domainInfo.expiresAt),
           isUniversal: domainInfo.isUniversal,
           ipfsHash: domainInfo.ipfsHash
         })
@@ -266,9 +272,28 @@ export default function PushNameService() {
                 {searchResult.expiresAt && (
                   <p><strong>Expires:</strong> {new Date(searchResult.expiresAt * 1000).toLocaleDateString()}</p>
                 )}
-                <p><strong>Type:</strong> {searchResult.isUniversal ? 'Universal' : 'Single Chain'}</p>
+                <p><strong>Type:</strong> {searchResult.isUniversal ? 'Universal (Cross-Chain)' : 'Single Chain'}</p>
                 {searchResult.ipfsHash && (
                   <p><strong>IPFS:</strong> {searchResult.ipfsHash}</p>
+                )}
+                
+                {/* Cross-chain transfer button for owned universal domains */}
+                {searchResult.owner?.toLowerCase() === address?.toLowerCase() && searchResult.isUniversal && (
+                  <div className="mt-4 p-4 bg-purple-50 rounded-lg">
+                    <h4 className="font-semibold text-purple-800 mb-2">🌐 Cross-Chain Transfer</h4>
+                    <p className="text-sm text-purple-600 mb-3">
+                      This universal domain can be transferred to other supported chains
+                    </p>
+                    <button
+                      onClick={() => {
+                        // TODO: Implement cross-chain transfer modal
+                        alert('Cross-chain transfer feature coming soon!')
+                      }}
+                      className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm"
+                    >
+                      Transfer to Another Chain
+                    </button>
+                  </div>
                 )}
               </div>
             )}
@@ -303,6 +328,41 @@ export default function PushNameService() {
         </div>
       </div>
 
+      {/* Push Chain Status */}
+      {chainId === 42101 && (
+        <div className="mt-8 bg-gradient-to-r from-pink-100 to-purple-100 rounded-lg p-6 border-2 border-pink-200">
+          <div className="flex items-center gap-3 mb-4">
+            <span className="text-2xl">🍩</span>
+            <h3 className="text-xl font-semibold">Push Chain Donut Testnet</h3>
+            <span className="px-2 py-1 bg-pink-200 text-pink-800 rounded-full text-xs font-medium">ACTIVE</span>
+          </div>
+          <p className="text-gray-700 mb-4">
+            You're connected to Push Chain, the main hub for universal .push domains! 
+            Domains registered here can be transferred to any supported blockchain using Universal Transactions.
+          </p>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <h4 className="font-semibold mb-2 text-pink-800">🌟 Universal Features</h4>
+              <ul className="text-sm text-gray-600 space-y-1">
+                <li>• Cross-chain domain transfers</li>
+                <li>• Universal Ethereum Accounts (UEA)</li>
+                <li>• Push notifications</li>
+                <li>• Decentralized messaging</li>
+              </ul>
+            </div>
+            <div>
+              <h4 className="font-semibold mb-2 text-purple-800">⚡ Low Fees</h4>
+              <ul className="text-sm text-gray-600 space-y-1">
+                <li>• Registration: {registrationCost} PC</li>
+                <li>• Transfer: 0.0001 PC</li>
+                <li>• Cross-chain: 0.001 PC</li>
+                <li>• Marketplace: 0.0001 PC</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Push Protocol Info */}
       <div className="mt-8 bg-gradient-to-r from-purple-100 to-pink-100 rounded-lg p-6">
         <h3 className="text-xl font-semibold mb-2">Powered by Push Protocol</h3>
@@ -324,13 +384,13 @@ export default function PushNameService() {
             <h4 className="font-semibold mb-2">🌐 Universal Domains</h4>
             <ul className="text-sm text-gray-600 space-y-1">
               <li>• Work across all supported chains</li>
-              <li>• Cross-chain transfers</li>
+              <li>• Cross-chain transfers via UEA</li>
               <li>• Push notifications</li>
               <li>• IPFS website hosting</li>
             </ul>
           </div>
         </div>
-        <div className="flex gap-4 mt-4">
+        <div className="flex flex-wrap gap-4 mt-4">
           <a 
             href="https://push.org" 
             target="_blank" 
@@ -362,6 +422,14 @@ export default function PushNameService() {
             className="text-purple-600 hover:text-purple-800 font-medium"
           >
             Block Explorer →
+          </a>
+          <a 
+            href={`https://donut.push.network/address/${contractAddresses?.nameService}`}
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="text-pink-600 hover:text-pink-800 font-medium"
+          >
+            View Contract →
           </a>
         </div>
       </div>

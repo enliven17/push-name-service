@@ -4,29 +4,39 @@ import { PushNameService, CrossChainTransferRequest, DomainRecord } from './push
 // Contract ABI for Push Universal Name Service
 const PUSH_NAME_SERVICE_ABI = [
   // Events
-  "event Registered(string indexed name, address indexed owner, uint256 expiresAt, uint256 chainId, bool isUniversal)",
-  "event Renewed(string indexed name, uint256 newExpiresAt)",
-  "event Transferred(string indexed name, address indexed from, address indexed to, uint256 sourceChainId, uint256 targetChainId)",
-  "event CrossChainTransfer(string indexed name, address indexed from, address indexed to, uint256 sourceChainId, uint256 targetChainId, bytes32 messageId)",
-  "event RecordUpdated(string indexed name, string indexed recordType, string value)",
+  "event DomainRegistered(uint256 indexed domainId, string indexed name, address indexed owner, uint256 expiresAt, uint256 chainId, bool isUniversal, uint256 price)",
+  "event DomainRenewed(string indexed name, address indexed owner, uint256 newExpiresAt, uint256 renewalCount)",
+  "event DomainTransferred(string indexed name, address indexed from, address indexed to, uint256 sourceChainId, uint256 targetChainId)",
+  "event CrossChainTransferInitiated(string indexed name, address indexed from, address indexed to, uint256 sourceChainId, uint256 targetChainId, bytes32 messageId)",
+  "event CrossChainTransferCompleted(string indexed name, address indexed to, uint256 sourceChainId, uint256 targetChainId, bytes32 messageId)",
+  "event RecordUpdated(string indexed name, string indexed recordType, string oldValue, string newValue)",
+  "event MetadataUpdated(string indexed name, address indexed owner)",
+  "event DomainListed(string indexed name, address indexed seller, uint256 price)",
+  "event DomainSold(string indexed name, address indexed seller, address indexed buyer, uint256 price)",
+  "event DomainDelisted(string indexed name, address indexed seller)",
   
   // Read functions
   "function isAvailable(string calldata name) external view returns (bool)",
   "function ownerOf(string calldata name) external view returns (address)",
-  "function expiresAt(string calldata name) external view returns (uint64)",
-  "function getDomainInfo(string calldata name) external view returns (address owner, uint64 expiration, uint256 sourceChainId, bool isUniversal, bool isExpired, string memory ipfsHash)",
+  "function getDomainInfo(string calldata name) external view returns (tuple(uint256 id, address owner, uint64 expiresAt, uint64 registeredAt, uint256 sourceChainId, uint256 currentChainId, bool isUniversal, string ipfsHash, uint256 renewalCount, bool isLocked))",
   "function getRecord(string calldata name, string calldata recordType) external view returns (string memory)",
   "function getSupportedChains() external view returns (uint256[] memory)",
   "function getChainConfig(uint256 chainId) external view returns (tuple(bool isSupported, uint256 registrationPrice, uint256 transferFee, string rpcUrl, string explorerUrl))",
+  "function getTotalDomains() external view returns (uint256)",
+  "function getTotalUniversalDomains() external view returns (uint256)",
+  "function getUserDomains(address user) external view returns (string[] memory)",
+  "function getMarketplaceListing(string calldata name) external view returns (tuple(address seller, uint256 price, uint64 listedAt, bool isActive, bool acceptsOffers, uint256 minOfferPrice))",
   
   // Write functions
   "function register(string calldata name, bool makeUniversal) external payable",
   "function renew(string calldata name) external payable",
   "function setRecord(string calldata name, string calldata recordType, string calldata value) external",
-  "function setIPFSHash(string calldata name, string calldata ipfsHash) external",
+  "function setDomainMetadata(string calldata name, string calldata description, string calldata avatar, string calldata website, string calldata email, string calldata twitter, string calldata discord) external",
   "function transfer(string calldata name, address to) external",
   "function crossChainTransfer(string calldata name, address to, uint256 targetChainId) external payable",
-  "function batchRegister(string[] calldata names, bool makeUniversal) external payable"
+  "function listDomain(string calldata name, uint256 price) external",
+  "function buyDomain(string calldata name) external payable",
+  "function delistDomain(string calldata name) external"
 ];
 
 export interface ChainConfig {
@@ -38,12 +48,16 @@ export interface ChainConfig {
 }
 
 export interface ContractDomainInfo {
+  id: bigint;
   owner: string;
-  expiration: bigint;
+  expiresAt: bigint;
+  registeredAt: bigint;
   sourceChainId: bigint;
+  currentChainId: bigint;
   isUniversal: boolean;
-  isExpired: boolean;
   ipfsHash: string;
+  renewalCount: bigint;
+  isLocked: boolean;
 }
 
 export class PushNameServiceContract {
@@ -104,12 +118,16 @@ export class PushNameServiceContract {
     try {
       const info = await this.contract.getDomainInfo(name);
       return {
+        id: info.id,
         owner: info.owner,
-        expiration: info.expiration,
+        expiresAt: info.expiresAt,
+        registeredAt: info.registeredAt,
         sourceChainId: info.sourceChainId,
+        currentChainId: info.currentChainId,
         isUniversal: info.isUniversal,
-        isExpired: info.isExpired,
-        ipfsHash: info.ipfsHash
+        ipfsHash: info.ipfsHash,
+        renewalCount: info.renewalCount,
+        isLocked: info.isLocked
       };
     } catch (error) {
       console.error('Error getting domain info:', error);
@@ -133,7 +151,7 @@ export class PushNameServiceContract {
       const tx = await this.contract.register(name, makeUniversal, { value });
       
       // Listen for registration event and send Push notification
-      this.contract.once('Registered', async (registeredName, owner, expiresAt, chainId, isUniversal) => {
+      this.contract.once('DomainRegistered', async (domainId, registeredName, owner, expiresAt, chainId, isUniversal, price) => {
         if (registeredName.toLowerCase() === name.toLowerCase()) {
           const domainRecord: DomainRecord = {
             name: registeredName,
@@ -207,7 +225,7 @@ export class PushNameServiceContract {
       const tx = await this.contract.crossChainTransfer(name, to, targetChainId, { value });
       
       // Listen for cross-chain transfer event and send Push notification
-      this.contract.once('CrossChainTransfer', async (domainName, from, toAddr, sourceChainId, targetChainId, messageId) => {
+      this.contract.once('CrossChainTransferInitiated', async (domainName, from, toAddr, sourceChainId, targetChainId, messageId) => {
         if (domainName.toLowerCase() === name.toLowerCase()) {
           const transferRequest: CrossChainTransferRequest = {
             domainName,
@@ -292,12 +310,52 @@ export class PushNameServiceContract {
     }
   }
 
+  // List domain for sale
+  async listDomain(name: string, price: bigint): Promise<ethers.TransactionResponse> {
+    try {
+      return await this.contract.listDomain(name, price);
+    } catch (error) {
+      console.error('Error listing domain:', error);
+      throw error;
+    }
+  }
+
+  // Buy domain from marketplace
+  async buyDomain(name: string, value: bigint): Promise<ethers.TransactionResponse> {
+    try {
+      return await this.contract.buyDomain(name, { value });
+    } catch (error) {
+      console.error('Error buying domain:', error);
+      throw error;
+    }
+  }
+
+  // Delist domain from marketplace
+  async delistDomain(name: string): Promise<ethers.TransactionResponse> {
+    try {
+      return await this.contract.delistDomain(name);
+    } catch (error) {
+      console.error('Error delisting domain:', error);
+      throw error;
+    }
+  }
+
+  // Get marketplace listing
+  async getMarketplaceListing(name: string) {
+    try {
+      return await this.contract.getMarketplaceListing(name);
+    } catch (error) {
+      console.error('Error getting marketplace listing:', error);
+      throw error;
+    }
+  }
+
   // Check if domain is expiring soon and send notification
   async checkAndNotifyExpiration(name: string, warningDays: number = 30) {
     try {
       const domainInfo = await this.getDomainInfo(name);
       const currentTime = Math.floor(Date.now() / 1000);
-      const expirationTime = Number(domainInfo.expiration);
+      const expirationTime = Number(domainInfo.expiresAt);
       const daysUntilExpiry = Math.floor((expirationTime - currentTime) / (24 * 60 * 60));
 
       if (daysUntilExpiry <= warningDays && daysUntilExpiry > 0) {
@@ -322,44 +380,63 @@ export class PushNameServiceContract {
 
   // Get user's domains
   async getUserDomains(userAddress: string): Promise<string[]> {
-    // This would require indexing events or using a subgraph
-    // For now, we'll return an empty array and implement this with event filtering
     try {
-      const filter = this.contract.filters.Registered(null, userAddress);
-      const events = await this.contract.queryFilter(filter);
-      
-      return events.map(event => {
-        if ('args' in event) {
-          return event.args?.name;
-        }
-        return null;
-      }).filter(Boolean);
+      // Use the contract's built-in getUserDomains function
+      return await this.contract.getUserDomains(userAddress);
     } catch (error) {
       console.error('Error getting user domains:', error);
-      return [];
+      
+      // Fallback to event filtering
+      try {
+        const filter = this.contract.filters.DomainRegistered(null, null, userAddress);
+        const events = await this.contract.queryFilter(filter);
+        
+        return events.map(event => {
+          if ('args' in event) {
+            return event.args?.name;
+          }
+          return null;
+        }).filter(Boolean);
+      } catch (fallbackError) {
+        console.error('Fallback getUserDomains also failed:', fallbackError);
+        return [];
+      }
     }
   }
 
   // Subscribe to contract events
   subscribeToEvents() {
     // Listen for domain registrations
-    this.contract.on('Registered', (name, owner, expiresAt, chainId, isUniversal) => {
-      console.log('Domain registered:', { name, owner, expiresAt, chainId, isUniversal });
+    this.contract.on('DomainRegistered', (domainId, name, owner, expiresAt, chainId, isUniversal, price) => {
+      console.log('Domain registered:', { domainId, name, owner, expiresAt, chainId, isUniversal, price });
     });
 
     // Listen for domain transfers
-    this.contract.on('Transferred', (name, from, to, sourceChainId, targetChainId) => {
+    this.contract.on('DomainTransferred', (name, from, to, sourceChainId, targetChainId) => {
       console.log('Domain transferred:', { name, from, to, sourceChainId, targetChainId });
     });
 
     // Listen for cross-chain transfers
-    this.contract.on('CrossChainTransfer', (name, from, to, sourceChainId, targetChainId, messageId) => {
-      console.log('Cross-chain transfer:', { name, from, to, sourceChainId, targetChainId, messageId });
+    this.contract.on('CrossChainTransferInitiated', (name, from, to, sourceChainId, targetChainId, messageId) => {
+      console.log('Cross-chain transfer initiated:', { name, from, to, sourceChainId, targetChainId, messageId });
+    });
+
+    this.contract.on('CrossChainTransferCompleted', (name, to, sourceChainId, targetChainId, messageId) => {
+      console.log('Cross-chain transfer completed:', { name, to, sourceChainId, targetChainId, messageId });
     });
 
     // Listen for record updates
-    this.contract.on('RecordUpdated', (name, recordType, value) => {
-      console.log('Record updated:', { name, recordType, value });
+    this.contract.on('RecordUpdated', (name, recordType, oldValue, newValue) => {
+      console.log('Record updated:', { name, recordType, oldValue, newValue });
+    });
+
+    // Listen for marketplace events
+    this.contract.on('DomainListed', (name, seller, price) => {
+      console.log('Domain listed:', { name, seller, price });
+    });
+
+    this.contract.on('DomainSold', (name, seller, buyer, price) => {
+      console.log('Domain sold:', { name, seller, buyer, price });
     });
   }
 

@@ -11,7 +11,7 @@ async function main() {
   console.log("- Deployer:", deployer.address);
   
   // Contract address on Push Chain Donut (updated with Universal Transaction support)
-  const contractAddress = "0x38e3f8c4822b5147FA254c7B873ED6aAC6E08112";
+  const contractAddress = "0x4073E4B33c9a6b7C5e0d0d3aaE3812Df2A61fb89";
   
   // Connect to deployed contract
   const PushNameService = await ethers.getContractFactory("PushUniversalNameService");
