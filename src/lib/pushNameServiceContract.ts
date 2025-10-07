@@ -72,6 +72,16 @@ export class PushNameServiceContract {
     chainId: number,
     pushServiceConfig: any
   ) {
+    if (!contractAddress) {
+      throw new Error('Contract address is required');
+    }
+    if (!signer) {
+      throw new Error('Signer is required');
+    }
+    if (!pushServiceConfig?.account) {
+      throw new Error('Push service account is required');
+    }
+    
     this.contract = new ethers.Contract(contractAddress, PUSH_NAME_SERVICE_ABI, signer);
     this.signer = signer;
     this.chainId = chainId;
@@ -148,26 +158,54 @@ export class PushNameServiceContract {
   // Register a new domain
   async register(name: string, makeUniversal: boolean, value: bigint): Promise<ethers.TransactionResponse> {
     try {
-      const tx = await this.contract.register(name, makeUniversal, { value });
+      console.log('📝 Calling contract register:', { name, makeUniversal, value: ethers.formatEther(value) });
+      
+      // Estimate gas first
+      const gasEstimate = await this.contract.register.estimateGas(name, makeUniversal, { value });
+      console.log('⛽ Estimated gas:', gasEstimate.toString());
+      
+      // Send transaction with estimated gas + 20% buffer
+      const tx = await this.contract.register(name, makeUniversal, { 
+        value,
+        gasLimit: gasEstimate * 120n / 100n // 20% buffer
+      });
+      
+      console.log('📤 Registration transaction sent:', tx.hash);
       
       // Listen for registration event and send Push notification
       this.contract.once('DomainRegistered', async (domainId, registeredName, owner, expiresAt, chainId, isUniversal, price) => {
         if (registeredName.toLowerCase() === name.toLowerCase()) {
-          const domainRecord: DomainRecord = {
-            name: registeredName,
-            owner,
-            expiresAt: Number(expiresAt),
-            sourceChainId: Number(chainId),
-            isUniversal
-          };
+          console.log('🎉 Domain registration event received:', { domainId, registeredName, owner });
           
-          await this.pushService.sendDomainRegistrationNotification(domainRecord);
+          try {
+            const domainRecord: DomainRecord = {
+              name: registeredName,
+              owner,
+              expiresAt: Number(expiresAt),
+              sourceChainId: Number(chainId),
+              isUniversal
+            };
+            
+            await this.pushService.sendDomainRegistrationNotification(domainRecord);
+          } catch (notificationError) {
+            console.warn('Push notification failed:', notificationError);
+          }
         }
       });
 
       return tx;
-    } catch (error) {
-      console.error('Error registering domain:', error);
+    } catch (error: any) {
+      console.error('❌ Error registering domain:', error);
+      
+      // Enhance error messages
+      if (error.code === 'UNPREDICTABLE_GAS_LIMIT') {
+        throw new Error('Transaction would fail. Please check domain availability and your balance.');
+      } else if (error.code === 'INSUFFICIENT_FUNDS') {
+        throw new Error('Insufficient funds for registration and gas fees.');
+      } else if (error.reason) {
+        throw new Error(`Registration failed: ${error.reason}`);
+      }
+      
       throw error;
     }
   }
@@ -290,11 +328,22 @@ export class PushNameServiceContract {
   async getRegistrationCost(chainId?: number): Promise<bigint> {
     try {
       const targetChainId = chainId || this.chainId;
+      console.log('🔍 Getting registration cost for chain:', targetChainId);
+      
       const config = await this.getChainConfig(targetChainId);
+      console.log('💰 Chain config:', {
+        isSupported: config.isSupported,
+        registrationPrice: ethers.formatEther(config.registrationPrice),
+        transferFee: ethers.formatEther(config.transferFee)
+      });
+      
       return config.registrationPrice;
     } catch (error) {
-      console.error('Error getting registration cost:', error);
-      throw error;
+      console.error('❌ Error getting registration cost:', error);
+      
+      // Fallback to default price if contract call fails
+      console.warn('Using fallback registration price: 0.001 ETH');
+      return ethers.parseEther('0.001');
     }
   }
 

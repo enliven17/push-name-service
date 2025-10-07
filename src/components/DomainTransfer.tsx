@@ -449,6 +449,7 @@ export const DomainTransfer: React.FC<DomainTransferProps> = ({
 
 
   const formatAddress = (addr: string) => {
+    if (!addr || typeof addr !== 'string') return 'Unknown';
     if (addr.length <= 12) return addr;
     return `${addr.slice(0, 6)}...${addr.slice(-6)}`;
   };

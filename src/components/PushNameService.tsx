@@ -121,24 +121,63 @@ export default function PushNameService() {
   }
 
   const registerDomain = async () => {
-    if (!contract || !searchResult?.isAvailable) return
+    if (!contract || !searchResult?.isAvailable || !address) return
 
     setIsRegistering(true)
     try {
-      const cost = await contract.getRegistrationCost()
-      const tx = await contract.register(searchResult.name, makeUniversal, cost)
+      console.log('🚀 Starting domain registration...')
       
-      console.log('Registration transaction:', tx.hash)
-      await tx.wait()
+      // Get registration cost from contract
+      const cost = await contract.getRegistrationCost()
+      console.log('💰 Registration cost:', ethers.formatEther(cost), chainConfig?.currency)
+      
+      // Call contract register function with payment
+      const tx = await contract.register(searchResult.name, makeUniversal, cost)
+      console.log('📤 Transaction sent:', tx.hash)
+      
+      // Wait for transaction confirmation
+      const receipt = await tx.wait()
+      console.log('✅ Transaction confirmed:', receipt.hash)
+      
+      // Save to database after successful blockchain transaction
+      try {
+        const { pushDomainService } = await import('../lib/supabase')
+        await pushDomainService.registerDomain(
+          searchResult.name,
+          address,
+          chainId || 42101,
+          tx.hash,
+          makeUniversal,
+          parseFloat(ethers.formatEther(cost)),
+          chainConfig?.currency || 'PC'
+        )
+        console.log('💾 Domain saved to database')
+      } catch (dbError) {
+        console.warn('⚠️ Database save failed, but blockchain registration succeeded:', dbError)
+      }
       
       // Refresh search result
       await searchDomain()
       
       // Show success notification
-      alert(`Successfully registered ${formatDomainName(searchResult.name)}!`)
-    } catch (error) {
-      console.error('Registration failed:', error)
-      alert('Registration failed. Please try again.')
+      alert(`🎉 Successfully registered ${formatDomainName(searchResult.name)}!\n\nTransaction: ${tx.hash}\nCost: ${ethers.formatEther(cost)} ${chainConfig?.currency}`)
+      
+    } catch (error: any) {
+      console.error('❌ Registration failed:', error)
+      
+      let errorMessage = 'Registration failed. Please try again.'
+      
+      if (error.code === 'ACTION_REJECTED') {
+        errorMessage = 'Transaction was rejected by user.'
+      } else if (error.code === 'INSUFFICIENT_FUNDS') {
+        errorMessage = 'Insufficient funds for registration.'
+      } else if (error.message?.includes('user rejected')) {
+        errorMessage = 'Transaction was rejected by user.'
+      } else if (error.reason) {
+        errorMessage = `Registration failed: ${error.reason}`
+      }
+      
+      alert(errorMessage)
     } finally {
       setIsRegistering(false)
     }
@@ -187,6 +226,10 @@ export default function PushNameService() {
           <span>Network: {chainConfig?.name}</span>
           <span>•</span>
           <span>Registration: {registrationCost} {chainConfig?.currency}</span>
+          <span>•</span>
+          <span className={contract ? 'text-green-600' : 'text-red-600'}>
+            Contract: {contract ? '✅ Connected' : '❌ Not Connected'}
+          </span>
         </div>
       </div>
 
@@ -254,15 +297,29 @@ export default function PushNameService() {
                       Cost: {registrationCost} {chainConfig?.currency}
                     </p>
                     <p className="text-sm text-gray-500">
-                      Valid for 1 year • {makeUniversal ? 'Universal' : 'Single chain'} domain
+                      Valid for 1 year • {makeUniversal ? 'Universal (Cross-Chain)' : 'Single chain'} domain
                     </p>
+                    {makeUniversal && (
+                      <p className="text-xs text-purple-600 mt-1">
+                        ⚡ Universal domains can be transferred to other blockchains
+                      </p>
+                    )}
                   </div>
                   <button
                     onClick={registerDomain}
-                    disabled={isRegistering}
-                    className="px-6 py-2 bg-pink-600 text-white rounded-lg hover:bg-pink-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={isRegistering || !contract}
+                    className="px-6 py-2 bg-pink-600 text-white rounded-lg hover:bg-pink-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                   >
-                    {isRegistering ? 'Registering...' : 'Register Domain'}
+                    {isRegistering ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                        Registering...
+                      </>
+                    ) : (
+                      <>
+                        💰 Register Domain
+                      </>
+                    )}
                   </button>
                 </div>
               </div>

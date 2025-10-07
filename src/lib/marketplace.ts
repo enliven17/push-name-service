@@ -81,7 +81,7 @@ export const marketplaceService = {
       throw new Error('Supabase client not initialized');
     }
     const { data, error } = await supabase
-      .from('marketplace_listings')
+      .from('push_marketplace_listings')
       .insert({
         domain_id: domainId,
         seller_address: sellerAddress.toLowerCase(),
@@ -139,10 +139,10 @@ export const marketplaceService = {
     console.log('🔍 Fetching listings for seller:', sellerAddress.toLowerCase());
     
     const { data, error } = await supabase
-      .from('marketplace_listings')
+      .from('push_marketplace_listings')
       .select(`
         *,
-        domain:domains(id, name, owner_address, expiration_date)
+        domain:push_domains(id, name, owner_address, expiration_date)
       `)
       .eq('seller_address', sellerAddress.toLowerCase())
       .order('created_at', { ascending: false });

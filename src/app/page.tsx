@@ -1021,9 +1021,39 @@ export default function Home() {
       // Domain availability is determined solely by database
       const isAvailable = databaseAvailable;
       
-      // Get dynamic price based on current network
-      const chainConfig = getChainConfig(currentChainId);
-      const price = chainConfig ? `${chainConfig.registrationPrice} ${chainConfig.currency}` : '0.001 ETH';
+      // Get dynamic price from contract if available
+      let price = '0.001 PC';
+      try {
+        if (window.ethereum && walletConnected) {
+          const { ethers } = await import('ethers');
+          const provider = new ethers.BrowserProvider(window.ethereum);
+          const signer = await provider.getSigner();
+          const signerAddress = await signer.getAddress();
+          
+          const contractAddress = process.env.NEXT_PUBLIC_PUSH_CHAIN_NAME_SERVICE_ADDRESS;
+          if (contractAddress && signerAddress) {
+            const contract = new PushNameServiceContract(
+              contractAddress,
+              signer,
+              currentChainId,
+              { env: 'staging', account: signerAddress }
+            );
+            
+            const registrationCost = await contract.getRegistrationCost();
+            const chainConfig = getChainConfig(currentChainId);
+            price = `${ethers.formatEther(registrationCost)} ${chainConfig?.currency || 'PC'}`;
+            console.log('💰 Real contract price:', price);
+          }
+        } else {
+          // Fallback to config price
+          const chainConfig = getChainConfig(currentChainId);
+          price = chainConfig ? `${chainConfig.registrationPrice} ${chainConfig.currency}` : '0.001 PC';
+        }
+      } catch (error) {
+        console.warn('⚠️ Failed to get contract price, using fallback:', error);
+        const chainConfig = getChainConfig(currentChainId);
+        price = chainConfig ? `${chainConfig.registrationPrice} ${chainConfig.currency}` : '0.001 PC';
+      }
       
       setSearchResult({
         name: trimmedQuery.toLowerCase(),
@@ -1040,7 +1070,10 @@ export default function Home() {
 
   // Register domain function (with universal support)
   const registerDomain = async () => {
-    if (!searchResult || !walletConnected) return;
+    if (!searchResult || !walletConnected || !currentAddress) {
+      showError('Registration Failed', 'Please connect your wallet first.');
+      return;
+    }
 
     const universalText = makeUniversal ? ' as a universal domain' : '';
     const universalNote = makeUniversal ? ' This domain will be transferable across multiple blockchains via Push Protocol.' : '';
@@ -1062,52 +1095,97 @@ export default function Home() {
             throw new Error('No wallet connected. Please connect your wallet to register domains.');
           }
           
-          console.log('🔗 Starting universal registration...');
+          console.log('🔗 Starting blockchain registration...');
           console.log('🌐 Make universal:', makeUniversal);
           console.log('💰 This will cost', searchResult.price, '+ gas fees');
           
-          // Push Protocol contract will be initialized here
-          // const contract = new PushNameServiceContract(contractAddress, signer, currentChainId, pushConfig);
+          // Initialize Push Protocol contract
+          const { ethers } = await import('ethers');
+          const provider = new ethers.BrowserProvider(window.ethereum);
+          const signer = await provider.getSigner();
           
-          // transactionHash = await contract.register(searchResult.name, makeUniversal, cost);
+          // Get current address from signer
+          const signerAddress = await signer.getAddress();
+          console.log('👤 Signer address:', signerAddress);
           
-          console.log('✅ Transaction submitted:', transactionHash);
-          console.log('✅ Universal registration successful:', transactionHash);
-
-          // Register in database
-          const newDomain = await domainService.registerDomain(
-            searchResult.name,
-            currentAddress!,
-            searchResult.price,
-            transactionHash
+          // Get contract address from environment
+          const contractAddress = process.env.NEXT_PUBLIC_PUSH_CHAIN_NAME_SERVICE_ADDRESS;
+          if (!contractAddress) {
+            throw new Error('Contract address not configured');
+          }
+          
+          console.log('📍 Contract address:', contractAddress);
+          
+          // Initialize contract
+          const contract = new PushNameServiceContract(
+            contractAddress,
+            signer,
+            currentChainId,
+            { env: 'staging', account: signerAddress }
           );
+          
+          await contract.initialize();
+          
+          // Get registration cost from contract
+          const registrationCost = await contract.getRegistrationCost();
+          console.log('💰 Registration cost:', ethers.formatEther(registrationCost), 'PC');
+          
+          // Send registration transaction
+          const tx = await contract.register(searchResult.name, makeUniversal, registrationCost);
+          transactionHash = tx.hash;
+          
+          console.log('📤 Transaction sent:', transactionHash);
+          
+          // Wait for confirmation
+          const receipt = await tx.wait();
+          console.log('✅ Transaction confirmed:', receipt.hash);
 
-          // Add .push extension for display
-          const displayDomain = {
-            ...newDomain,
-            name: newDomain.name + '.push'
-          };
+          // Register in database after successful blockchain transaction
+          try {
+            const newDomain = await domainService.registerDomain(
+              searchResult.name,
+              signerAddress,
+              ethers.formatEther(registrationCost),
+              transactionHash
+            );
+            console.log('💾 Domain saved to database:', newDomain);
+          } catch (dbError) {
+            console.warn('⚠️ Database save failed, but blockchain registration succeeded:', dbError);
+          }
 
-          setUserDomains(prev => [...prev, displayDomain]);
+          // Refresh user domains from database
+          await loadUserDomains();
           setSearchResult(null);
           setSearchQuery('');
           setMakeUniversal(false); // Reset universal option
           
           // Success notification
           const successMessage = makeUniversal 
-            ? `${searchResult.name}.push has been registered as a universal domain! You can now transfer it across multiple blockchains using Push Protocol.`
-            : `${searchResult.name}.push has been registered successfully!`;
+            ? `${searchResult.name}.push has been registered as a universal domain! You can now transfer it across multiple blockchains using Push Protocol.\n\nTransaction: ${transactionHash}`
+            : `${searchResult.name}.push has been registered successfully!\n\nTransaction: ${transactionHash}`;
             
           showSuccess(
             'Domain Registered Successfully!',
             successMessage
           );
-        } catch (error: unknown) {
-          console.error('Domain registration failed:', error);
-          showError(
-            'Registration Failed',
-            (error as Error).message || 'Failed to register domain. Please try again.'
-          );
+        } catch (error: any) {
+          console.error('❌ Domain registration failed:', error);
+          
+          let errorMessage = 'Failed to register domain. Please try again.';
+          
+          if (error.code === 'ACTION_REJECTED') {
+            errorMessage = 'Transaction was rejected by user.';
+          } else if (error.code === 'INSUFFICIENT_FUNDS') {
+            errorMessage = 'Insufficient funds for registration and gas fees.';
+          } else if (error.message?.includes('user rejected')) {
+            errorMessage = 'Transaction was rejected by user.';
+          } else if (error.reason) {
+            errorMessage = `Registration failed: ${error.reason}`;
+          } else if (error.message) {
+            errorMessage = error.message;
+          }
+          
+          showError('Registration Failed', errorMessage);
         } finally {
           setIsRegistering(false);
         }
@@ -1228,6 +1306,8 @@ export default function Home() {
       setUserListings(listings);
     } catch (error) {
       console.error('Failed to load user listings:', error);
+      // Set empty array to prevent undefined errors
+      setUserListings([]);
     }
   };
 
@@ -1242,22 +1322,24 @@ export default function Home() {
 
   // Check if domain is currently listed in marketplace
   const isDomainListed = (domainName: string) => {
-    console.log('Checking if domain is listed:', domainName);
-    console.log('User listings:', userListings);
+    if (!userListings || userListings.length === 0) {
+      return false;
+    }
     
     const isListed = userListings.some(listing => {
-      const listingDomainName = listing.domain?.name;
-      console.log('Comparing:', domainName, 'with', listingDomainName, 'status:', listing.status);
+      if (!listing || !listing.domain) return false;
+      
+      const listingDomainName = listing.domain.name;
+      if (!listingDomainName) return false;
       
       // Remove .push extension from domainName for comparison
       const cleanDomainName = domainName.replace('.push', '');
-      const cleanListingName = listingDomainName?.replace('.push', '');
+      const cleanListingName = listingDomainName.replace('.push', '');
       
       return (cleanListingName === cleanDomainName || listingDomainName === domainName) && 
              listing.status === 'active';
     });
     
-    console.log('Is listed result:', isListed);
     return isListed;
   };
 
