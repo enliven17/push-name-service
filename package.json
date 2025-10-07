@@ -20,7 +20,13 @@
     "deploy:all": "npm run deploy:push-chain && npm run deploy:ethereum && npm run deploy:polygon && npm run deploy:bsc && npm run deploy:arbitrum && npm run deploy:optimism",
     "test": "hardhat test",
     "test:push-chain": "hardhat run scripts/test-push-name-service.js --network pushChainDonut",
-    "test:ethereum-sepolia": "hardhat run scripts/test-push-name-service.js --network ethereumSepolia"
+    "test:ethereum-sepolia": "hardhat run scripts/test-push-name-service.js --network ethereumSepolia",
+    "test:universal-tx": "hardhat run scripts/test-universal-transaction.js --network pushChainDonut",
+    "test:gateway": "hardhat run scripts/test-push-gateway.js --network pushChainDonut",
+    "test:executor": "hardhat run scripts/test-universal-executor.js --network pushChainDonut",
+    "discover:factory": "hardhat run scripts/discover-factory-abi.js --network pushChainDonut",
+    "test:create-executor": "hardhat run scripts/test-create-executor.js --network pushChainDonut",
+    "test:real-universal": "hardhat run scripts/test-real-universal-tx.js --network pushChainDonut"
   },
   "dependencies": {
     "@creit.tech/stellar-wallets-kit": "^1.7.6",

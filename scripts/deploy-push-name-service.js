@@ -39,7 +39,8 @@ async function main() {
   const nameService = await PushUniversalNameService.deploy(
     deployer.address, // initial owner
     pushCoreAddress,  // Push Core contract address
-    deployer.address  // treasury address (initially deployer)
+    deployer.address, // treasury address (initially deployer)
+    pushCoreAddress   // Universal Executor Factory (using same address for now)
   );
   
   await nameService.waitForDeployment();
@@ -111,7 +112,7 @@ async function main() {
   // Print verification command
   if (network.chainId !== 31337) { // Not localhost
     console.log("\n🔗 Verify contract with:");
-    console.log(`npx hardhat verify --network ${network.name} ${contractAddress} "${deployer.address}" "${pushCoreAddress}" "${deployer.address}"`);
+    console.log(`npx hardhat verify --network ${network.name} ${contractAddress} "${deployer.address}" "${pushCoreAddress}" "${deployer.address}" "${pushCoreAddress}"`);
   }
   
   console.log("\n🎉 Deployment completed successfully!");

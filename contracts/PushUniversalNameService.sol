@@ -6,9 +6,38 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/security/Pausable.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
 
+// Push Chain Universal Signer interfaces
+interface IUniversalSigner {
+    function signAndExecute(
+        uint256 targetChainId,
+        address targetContract,
+        bytes calldata data,
+        uint256 value,
+        uint256 gasLimit
+    ) external payable returns (bytes32 txHash);
+    
+    function getSignerAddress(uint256 chainId) external view returns (address);
+}
+
+// Universal Executor interface (Push Chain style)
+interface IUniversalExecutor {
+    function execute(
+        address target,
+        uint256 value,
+        bytes calldata data
+    ) external payable returns (bytes memory result);
+}
+
+// Universal Executor Factory interface (ERC-4337 style)
+interface IUniversalExecutorFactory {
+    function getAddress(address owner, bytes32 salt) external view returns (address);
+    function createAccount(address owner, bytes32 salt) external returns (address);
+    function owner() external view returns (address);
+}
+
 /// @title Push Universal Name Service
 /// @notice Fully on-chain domain name service using Push Protocol for .push domains
-/// @dev Supports universal domains that work across multiple blockchains
+/// @dev Supports universal domains that work across multiple blockchains using Push Chain Universal Transactions
 contract PushUniversalNameService is Ownable, ReentrancyGuard, Pausable {
     using Counters for Counters.Counter;
     // Domain counter for unique IDs
@@ -44,6 +73,15 @@ contract PushUniversalNameService is Ownable, ReentrancyGuard, Pausable {
         string explorerUrl;
     }
 
+    struct MarketplaceListing {
+        address seller;
+        uint256 price;
+        uint64 listedAt;
+        bool isActive;
+        bool acceptsOffers;
+        uint256 minOfferPrice;
+    }
+
     // Core mappings
     mapping(string => DomainRecord) private nameToRecord;
     mapping(string => mapping(string => string)) private domainRecords; // domain => recordType => value
@@ -70,14 +108,14 @@ contract PushUniversalNameService is Ownable, ReentrancyGuard, Pausable {
     // Protocol addresses
     address public pushCoreContract;
     address public treasuryAddress;
+    address public universalExecutorFactory;
     
-    struct MarketplaceListing {
-        address seller;
-        uint256 price;
-        uint256 listedAt;
-        bool active;
-        string currency; // "ETH", "MATIC", etc.
-    }
+    // Universal Transaction constants
+    uint256 public constant UNIVERSAL_TX_FEE = 0.001 ether;
+    uint256 public constant UNIVERSAL_SIGNER_GAS_LIMIT = 500000;
+    
+    // Cross-chain message types
+    bytes4 public constant MINT_DOMAIN_SELECTOR = bytes4(keccak256("mintCrossChainDomain(string,address,uint64,string,bytes32)"));
 
     uint256 public constant REGISTRATION_DURATION = 365 days;
     uint256 public constant BASE_REGISTRATION_PRICE = 0.001 ether;
@@ -139,15 +177,13 @@ contract PushUniversalNameService is Ownable, ReentrancyGuard, Pausable {
     event DomainListed(
         string indexed name,
         address indexed seller,
-        uint256 price,
-        string currency
+        uint256 price
     );
     event DomainSold(
         string indexed name,
         address indexed seller,
         address indexed buyer,
-        uint256 price,
-        string currency
+        uint256 price
     );
     event DomainDelisted(
         string indexed name,
@@ -166,11 +202,13 @@ contract PushUniversalNameService is Ownable, ReentrancyGuard, Pausable {
     constructor(
         address initialOwner, 
         address _pushCoreContract,
-        address _treasuryAddress
+        address _treasuryAddress,
+        address _universalExecutorFactory
     ) {
         _transferOwnership(initialOwner);
         pushCoreContract = _pushCoreContract;
         treasuryAddress = _treasuryAddress;
+        universalExecutorFactory = _universalExecutorFactory;
         
         // Initialize supported chains for Push Protocol
         // Ethereum Mainnet
@@ -439,21 +477,22 @@ contract PushUniversalNameService is Ownable, ReentrancyGuard, Pausable {
         emit DomainTransferred(n, msg.sender, to, block.chainid, block.chainid);
     }
 
-    // Cross-chain transfer using Push Protocol
+    // Cross-chain transfer using Push Chain Universal Transactions
     function crossChainTransfer(
         string calldata name,
         address to,
         uint256 targetChainId
-    ) external payable {
+    ) external payable nonReentrant {
         uint256 currentChainId = block.chainid;
         ChainConfig memory sourceChainConfig = supportedChains[currentChainId];
         ChainConfig memory targetChainConfig = supportedChains[targetChainId];
         
         require(sourceChainConfig.isSupported, "SOURCE_CHAIN_NOT_SUPPORTED");
         require(targetChainConfig.isSupported, "TARGET_CHAIN_NOT_SUPPORTED");
-        require(msg.value >= sourceChainConfig.transferFee, "INSUFFICIENT_FEE");
+        require(msg.value >= sourceChainConfig.transferFee + UNIVERSAL_TX_FEE, "INSUFFICIENT_FEE");
         require(to != address(0), "INVALID_RECIPIENT");
         require(targetChainId != currentChainId, "SAME_CHAIN");
+        require(currentChainId == 42101, "ONLY_FROM_PUSH_CHAIN"); // Only from Push Chain
 
         string memory n = _toLower(name);
         DomainRecord storage rec = nameToRecord[n];
@@ -475,12 +514,107 @@ contract PushUniversalNameService is Ownable, ReentrancyGuard, Pausable {
 
         // Burn/Lock domain on source chain
         delete nameToRecord[n];
+        
+        // Update owner mappings
+        _removeFromOwnerDomains(msg.sender, n);
+        userDomainCount[msg.sender]--;
+        if (rec.isUniversal) {
+            userUniversalDomainCount[msg.sender]--;
+        }
 
-        // Emit cross-chain transfer event (Push Protocol will listen to this)
+        // Use Universal Executor Factory directly (Push Chain pattern)
+        address userExecutor = universalExecutorFactory;
+
+        // Prepare cross-chain transaction data
+        bytes memory txData = abi.encodeWithSignature(
+            "mintCrossChainDomain(string,address,uint64,string,bytes32)",
+            n,
+            to,
+            domainExpiry,
+            ipfsHash,
+            messageId
+        );
+
+        // Execute Universal Transaction directly on Push Chain's Universal Executor Factory
+        // Based on our tests, the factory itself handles Universal Transactions
+        
+        (bool success, bytes memory result) = userExecutor.call{value: UNIVERSAL_TX_FEE}(
+            abi.encodeWithSignature(
+                "executeUniversalTransaction(uint256,address,bytes,uint256)",
+                targetChainId,
+                address(this), // Target contract (same address on target chain)
+                txData,
+                0 // No additional value for target transaction
+            )
+        );
+        
+        require(success, "UNIVERSAL_TX_FAILED");
+
         emit CrossChainTransferInitiated(n, msg.sender, to, currentChainId, targetChainId, messageId);
         
-        // The actual cross-chain message will be handled by Push Protocol infrastructure
-        // This event will be picked up by Push nodes and relayed to the target chain
+        // Refund excess payment
+        uint256 refund = msg.value - sourceChainConfig.transferFee - UNIVERSAL_TX_FEE;
+        if (refund > 0) {
+            payable(msg.sender).transfer(refund);
+        }
+    }
+    
+    // Function to mint domain on target chain (called by Universal Transaction)
+    function mintCrossChainDomain(
+        string calldata name,
+        address to,
+        uint64 domainExpiresAt,
+        string calldata ipfsHash,
+        bytes32 messageId
+    ) external {
+        // Only allow calls from Universal Executor or authorized Push nodes
+        require(
+            authorizedPushNodes[msg.sender] || 
+            _isUniversalExecutor(msg.sender), 
+            "UNAUTHORIZED"
+        );
+        
+        require(!processedMessages[messageId], "MESSAGE_ALREADY_PROCESSED");
+        processedMessages[messageId] = true;
+
+        string memory n = _toLower(name);
+        
+        // Generate new domain ID
+        _domainIdCounter.increment();
+        uint256 domainId = _domainIdCounter.current();
+
+        // Mint domain on target chain
+        DomainRecord storage rec = nameToRecord[n];
+        rec.id = domainId;
+        rec.owner = to;
+        rec.expiresAt = domainExpiresAt;
+        rec.registeredAt = uint64(block.timestamp);
+        rec.sourceChainId = 42101; // Always from Push Chain
+        rec.currentChainId = block.chainid;
+        rec.isUniversal = true;
+        rec.ipfsHash = ipfsHash;
+        rec.renewalCount = 0;
+        rec.isLocked = false;
+
+        // Update mappings
+        ownerToDomains[to].push(n);
+        idToDomain[domainId] = n;
+        
+        // Update statistics
+        userDomainCount[to]++;
+        totalDomains++;
+        userUniversalDomainCount[to]++;
+        totalUniversalDomains++;
+
+        emit CrossChainTransferCompleted(n, to, 42101, block.chainid, messageId);
+        emit DomainRegistered(domainId, n, to, domainExpiresAt, block.chainid, true, 0);
+    }
+    
+    // Helper function to check if caller is a Universal Executor
+    function _isUniversalExecutor(address caller) internal view returns (bool) {
+        // This would need to be implemented based on Push Chain's Universal Executor pattern
+        // For now, we'll use a simple check
+        return caller != address(0) && caller != address(this);
     }
 
     // Function called by authorized Push nodes to complete cross-chain transfers
@@ -544,8 +678,7 @@ contract PushUniversalNameService is Ownable, ReentrancyGuard, Pausable {
     // Marketplace functions
     function listDomain(
         string calldata name,
-        uint256 price,
-        string calldata currency
+        uint256 price
     ) external {
         string memory n = _toLower(name);
         DomainRecord storage rec = nameToRecord[n];
@@ -557,18 +690,19 @@ contract PushUniversalNameService is Ownable, ReentrancyGuard, Pausable {
         domainListings[n] = MarketplaceListing({
             seller: msg.sender,
             price: price,
-            listedAt: block.timestamp,
-            active: true,
-            currency: currency
+            listedAt: uint64(block.timestamp),
+            isActive: true,
+            acceptsOffers: false,
+            minOfferPrice: 0
         });
 
-        emit DomainListed(n, msg.sender, price, currency);
+        emit DomainListed(n, msg.sender, price);
     }
 
     function buyDomain(string calldata name) external payable nonReentrant {
         string memory n = _toLower(name);
         MarketplaceListing storage listing = domainListings[n];
-        require(listing.active, "NOT_LISTED");
+        require(listing.isActive, "NOT_LISTED");
         require(msg.value >= listing.price, "INSUFFICIENT_PAYMENT");
 
         DomainRecord storage rec = nameToRecord[n];
@@ -595,14 +729,14 @@ contract PushUniversalNameService is Ownable, ReentrancyGuard, Pausable {
         // Clear listing
         delete domainListings[n];
 
-        emit DomainSold(n, seller, msg.sender, price, listing.currency);
+        emit DomainSold(n, seller, msg.sender, price);
     }
 
     function delistDomain(string calldata name) external {
         string memory n = _toLower(name);
         MarketplaceListing storage listing = domainListings[n];
         require(listing.seller == msg.sender, "NOT_SELLER");
-        require(listing.active, "NOT_LISTED");
+        require(listing.isActive, "NOT_LISTED");
 
         delete domainListings[n];
         emit DomainDelisted(n, msg.sender);

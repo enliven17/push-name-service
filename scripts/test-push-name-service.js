@@ -14,7 +14,7 @@ async function main() {
   console.log("- User2:", user2 ? user2.address : "N/A");
   
   // Get contract address from environment
-  const contractAddress = "0xc0b33Cc720025dD0AcF56e249C8b76A6A34170B6"; // Push Chain Donut deployment
+  const contractAddress = "0x3963ab094f13Bb6c2dAB132B41A8a3A451604dA1"; // Push Chain Donut deployment
   
   // Connect to deployed contract
   const PushNameService = await ethers.getContractFactory("PushUniversalNameService");
@@ -129,15 +129,24 @@ async function main() {
       const owner = await contract.ownerOf(testDomain);
       if (owner !== ethers.ZeroAddress) {
         console.log("\n🏪 Test 8: Marketplace listing");
-        const listPrice = ethers.parseEther("0.01");
-        const listTx = await contract.connect(deployer).listDomain(testDomain, listPrice, "PC");
-        await listTx.wait();
-        console.log("✅ Domain listed for sale");
         
-        // Get listing info
-        const listing = await contract.getMarketplaceListing(testDomain);
-        console.log("- Listed price:", ethers.formatEther(listing.price), "PC");
-        console.log("- Seller:", listing.seller);
+        // Check if already listed
+        const existingListing = await contract.getMarketplaceListing(testDomain);
+        if (existingListing.isActive) {
+          console.log("✅ Domain already listed");
+          console.log("- Listed price:", ethers.formatEther(existingListing.price), "PC");
+          console.log("- Seller:", existingListing.seller);
+        } else {
+          const listPrice = ethers.parseEther("0.01");
+          const listTx = await contract.connect(deployer).listDomain(testDomain, listPrice);
+          await listTx.wait();
+          console.log("✅ Domain listed for sale");
+          
+          // Get listing info
+          const listing = await contract.getMarketplaceListing(testDomain);
+          console.log("- Listed price:", ethers.formatEther(listing.price), "PC");
+          console.log("- Seller:", listing.seller);
+        }
         console.log("- Active:", listing.active);
       } else {
         console.log("❌ Domain not owned, skipping marketplace test");
