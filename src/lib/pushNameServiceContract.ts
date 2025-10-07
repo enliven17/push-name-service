@@ -89,7 +89,13 @@ export class PushNameServiceContract {
   }
 
   async initialize() {
-    await this.pushService.initialize();
+    try {
+      await this.pushService.initialize();
+      console.log('✅ Push service initialized successfully');
+    } catch (error) {
+      console.warn('⚠️ Push service initialization failed, continuing without Push features:', error);
+      // Continue without Push features - contract functionality will still work
+    }
   }
 
   // Check if a domain name is available

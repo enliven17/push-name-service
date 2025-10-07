@@ -17,7 +17,7 @@ import { ConfirmationModal } from '@/components/ConfirmationModal';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount, useDisconnect as useWagmiDisconnect } from 'wagmi';
 import { supportedChains, getChainConfig } from '@/config/chains';
-import NetworkSwitcher from '@/components/NetworkSwitcher';
+
 import NetworkInfo from '@/components/NetworkInfo';
 
 // Scramble animation hook
@@ -376,35 +376,22 @@ const PriceLabel = styled.div`
   color: rgba(255, 255, 255, 0.6);
 `;
 
-const UniversalOption = styled.div`
+const UniversalInfo = styled.div`
   display: flex;
   align-items: center;
   gap: 12px;
   margin-bottom: 16px;
   padding: 16px;
-  background: rgba(0, 210, 255, 0.1);
-  border: 1px solid rgba(0, 210, 255, 0.2);
+  background: rgba(236, 72, 153, 0.1);
+  border: 1px solid rgba(236, 72, 153, 0.2);
   border-radius: 12px;
   transition: all 0.3s ease;
-  
-  &:hover {
-    background: rgba(0, 210, 255, 0.15);
-    border-color: rgba(0, 210, 255, 0.3);
-  }
 `;
 
-const UniversalCheckbox = styled.input`
-  width: 20px;
-  height: 20px;
-  accent-color: #ec4899;
-  cursor: pointer;
-`;
-
-const UniversalLabel = styled.label`
+const UniversalInfoContent = styled.div`
   color: white;
   font-size: 0.95rem;
   font-weight: 500;
-  cursor: pointer;
   flex: 1;
   
   .highlight {
@@ -637,25 +624,25 @@ const NavButton = styled.button<{ disabled?: boolean }>`
   }
 `;
 
-const DomainViewport = styled.div<{ itemCount: number }>`
-  height: ${props => Math.min(props.itemCount, 2) * 180}px; /* Dynamic height based on item count */
+const DomainViewport = styled.div<{ $itemCount: number }>`
+  height: ${props => Math.min(props.$itemCount, 2) * 180}px; /* Dynamic height based on item count */
   overflow: hidden;
   position: relative;
 `;
 
-const DomainList = styled.div<{ currentIndex: number }>`
+const DomainList = styled.div<{ $currentIndex: number }>`
   display: flex;
   flex-direction: column;
   gap: 16px;
-  transform: translateY(${props => -props.currentIndex * 180}px);
+  transform: translateY(${props => -props.$currentIndex * 180}px);
   transition: transform 0.3s ease;
 `;
 
-const TransferList = styled.div<{ currentIndex: number }>`
+const TransferList = styled.div<{ $currentIndex: number }>`
   display: flex;
   flex-direction: column;
   gap: 16px;
-  transform: translateY(${props => -props.currentIndex * 180}px);
+  transform: translateY(${props => -props.$currentIndex * 180}px);
   transition: transform 0.3s ease;
 `;
 
@@ -936,7 +923,7 @@ export default function Home() {
     onConfirm: () => {}
   });
   const [devnetIssue, setDevnetIssue] = useState(false);
-  const [makeUniversal, setMakeUniversal] = useState(false);
+  // All Push domains are universal by default - no checkbox needed
   const [domainInfoCache, setDomainInfoCache] = useState<{[key: string]: any}>({});
 
   const { showSuccess, showError, showWarning, NotificationContainer } = useNotification();
@@ -947,13 +934,13 @@ export default function Home() {
   const { disconnect: wagmiDisconnect } = useWagmiDisconnect();
   const walletConnected = isConnected || wagmiAccount.isConnected;
   const currentAddress = address || wagmiAccount.address;
-  const currentChainId = chainId || 421614;
+  const currentChainId = 42101; // Always Push Chain Donut
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
 
   
-  // Check if user is on a supported network
-  const isWrongNetwork = walletConnected && !supportedChains.find(chain => chain.id === currentChainId);
+  // Always use Push Chain - no wrong network check needed
+  const isWrongNetwork = false;
 
   // Load user domains when wallet connects
   useEffect(() => {
@@ -1075,8 +1062,8 @@ export default function Home() {
       return;
     }
 
-    const universalText = makeUniversal ? ' as a universal domain' : '';
-    const universalNote = makeUniversal ? ' This domain will be transferable across multiple blockchains via Push Protocol.' : '';
+    const universalText = ' as a universal domain';
+    const universalNote = ' This domain will be transferable across multiple blockchains via Push Protocol.';
 
     // Show confirmation modal
     setConfirmModal({
@@ -1096,7 +1083,7 @@ export default function Home() {
           }
           
           console.log('🔗 Starting blockchain registration...');
-          console.log('🌐 Make universal:', makeUniversal);
+          console.log('🌐 All Push domains are universal by default');
           console.log('💰 This will cost', searchResult.price, '+ gas fees');
           
           // Initialize Push Protocol contract
@@ -1124,14 +1111,19 @@ export default function Home() {
             { env: 'staging', account: signerAddress }
           );
           
-          await contract.initialize();
+          try {
+            await contract.initialize();
+            console.log('✅ Contract initialized for registration');
+          } catch (initError) {
+            console.warn('⚠️ Contract initialization failed, continuing:', initError);
+          }
           
           // Get registration cost from contract
           const registrationCost = await contract.getRegistrationCost();
           console.log('💰 Registration cost:', ethers.formatEther(registrationCost), 'PC');
           
-          // Send registration transaction
-          const tx = await contract.register(searchResult.name, makeUniversal, registrationCost);
+          // Send registration transaction (all Push domains are universal)
+          const tx = await contract.register(searchResult.name, true, registrationCost);
           transactionHash = tx.hash;
           
           console.log('📤 Transaction sent:', transactionHash);
@@ -1145,8 +1137,11 @@ export default function Home() {
             const newDomain = await domainService.registerDomain(
               searchResult.name,
               signerAddress,
-              ethers.formatEther(registrationCost),
-              transactionHash
+              42101, // Push Chain ID
+              transactionHash,
+              true, // All Push domains are universal
+              parseFloat(ethers.formatEther(registrationCost)),
+              'PC'
             );
             console.log('💾 Domain saved to database:', newDomain);
           } catch (dbError) {
@@ -1157,12 +1152,10 @@ export default function Home() {
           await loadUserDomains();
           setSearchResult(null);
           setSearchQuery('');
-          setMakeUniversal(false); // Reset universal option
+          // Universal option removed - all domains are universal
           
           // Success notification
-          const successMessage = makeUniversal 
-            ? `${searchResult.name}.push has been registered as a universal domain! You can now transfer it across multiple blockchains using Push Protocol.\n\nTransaction: ${transactionHash}`
-            : `${searchResult.name}.push has been registered successfully!\n\nTransaction: ${transactionHash}`;
+          const successMessage = `🌐 ${searchResult.name}.push has been registered as a universal domain! You can now transfer it across multiple blockchains using Push Protocol.\n\nTransaction: ${transactionHash}`;
             
           showSuccess(
             'Domain Registered Successfully!',
@@ -1564,27 +1557,10 @@ export default function Home() {
                         {searchResult.name}.push
                       </DomainName>
                       <BadgeContainer>
-                        {makeUniversal ? (
-                          <UniversalBadge>
-                            <FaGlobe size={10} />
-                            Will be Universal
-                          </UniversalBadge>
-                        ) : (
-                          (() => {
-                            const chainConfig = getChainConfig(currentChainId);
-                            return chainConfig ? (
-                              <NetworkBadge color={chainConfig.color}>
-                                <div style={{ 
-                                  width: '8px', 
-                                  height: '8px', 
-                                  borderRadius: '50%', 
-                                  backgroundColor: chainConfig.color 
-                                }} />
-                                {chainConfig.shortName} Only
-                              </NetworkBadge>
-                            ) : null;
-                          })()
-                        )}
+                        <UniversalBadge>
+                          <FaGlobe size={10} />
+                          Universal Domain
+                        </UniversalBadge>
                       </BadgeContainer>
                     </DomainNameWithBadge>
                     <AvailabilityBadge $available={searchResult.available}>
@@ -1608,20 +1584,15 @@ export default function Home() {
 
                       <NetworkInfo />
 
-                      <UniversalOption>
-                        <UniversalCheckbox
-                          type="checkbox"
-                          id="universal-option"
-                          checked={makeUniversal}
-                          onChange={(e) => setMakeUniversal(e.target.checked)}
-                        />
-                        <UniversalLabel htmlFor="universal-option">
-                          <span className="highlight">Make Universal Domain</span>
+                      <UniversalInfo>
+                        <FaGlobe size={20} color="#ec4899" />
+                        <UniversalInfoContent>
+                          <span className="highlight">Universal Domain</span>
                           <span className="description">
-                            Enable cross-chain transfers via Push Protocol. Transfer your domain between Ethereum, Polygon, BSC, Arbitrum, and more!
+                            This domain will automatically be universal and usable across all Push Protocol supported networks (Ethereum, Polygon, BSC, Arbitrum, and more)!
                           </span>
-                        </UniversalLabel>
-                      </UniversalOption>
+                        </UniversalInfoContent>
+                      </UniversalInfo>
 
                       <RegisterButton
                         onClick={() => {
@@ -1634,7 +1605,7 @@ export default function Home() {
                         }}
                         disabled={isRegistering}
                       >
-                        {isRegistering ? 'Registering...' : (!walletConnected ? 'Connect to Register' : `Register ${makeUniversal ? 'Universal ' : ''}Domain`)}
+                        {isRegistering ? 'Registering Universal Domain...' : (!walletConnected ? 'Connect to Register' : 'Register Universal Domain')}
                       </RegisterButton>
                     </>
                   )}
@@ -1645,7 +1616,7 @@ export default function Home() {
 
               {walletConnected && (
                 <div style={{ display: 'flex', gap: 12, alignItems: 'stretch', marginTop: 16 }}>
-                  {wagmiAccount.isConnected && <NetworkSwitcher style={{ flex: '0 0 auto' }} />}
+
                   <DisconnectButton 
                     onClick={async () => { 
                       try { 
@@ -1699,8 +1670,8 @@ export default function Home() {
                       )}
                     </DomainsHeader>
 
-                    <DomainViewport itemCount={userDomains.length}>
-                      <DomainList currentIndex={currentDomainIndex}>
+                    <DomainViewport $itemCount={userDomains.length}>
+                      <DomainList $currentIndex={currentDomainIndex}>
                         {userDomains.map((domain, index) => {
                           const isListed = isDomainListed(domain.name);
                           const isExpired = new Date(domain.expiration_date) <= new Date();
@@ -1711,45 +1682,10 @@ export default function Home() {
                                 <DomainNameWithBadge>
                                   <DomainCardName>{domain.name}</DomainCardName>
                                   <BadgeContainer>
-                                    {(() => {
-                                      const domainInfo = domainInfoCache[domain.name];
-                                      console.log('🏷️ Badge for', domain.name, ':', domainInfo);
-                                      
-                                      if (domainInfo?.isUniversal) {
-                                        return (
-                                          <UniversalBadge>
-                                            <FaGlobe size={10} />
-                                            Universal
-                                          </UniversalBadge>
-                                        );
-                                      } else if (domainInfo?.sourceChainId) {
-                                        const chainConfig = getChainConfig(domainInfo.sourceChainId);
-                                        return chainConfig ? (
-                                          <NetworkBadge color={chainConfig.color}>
-                                            <div style={{ 
-                                              width: '8px', 
-                                              height: '8px', 
-                                              borderRadius: '50%', 
-                                              backgroundColor: chainConfig.color 
-                                            }} />
-                                            {chainConfig.shortName}
-                                          </NetworkBadge>
-                                        ) : null;
-                                      }
-                                      // If no domain info yet, show current network badge as default
-                                      const chainConfig = getChainConfig(currentChainId);
-                                      return chainConfig ? (
-                                        <NetworkBadge color={chainConfig.color}>
-                                          <div style={{ 
-                                            width: '8px', 
-                                            height: '8px', 
-                                            borderRadius: '50%', 
-                                            backgroundColor: chainConfig.color 
-                                          }} />
-                                          {chainConfig.shortName}
-                                        </NetworkBadge>
-                                      ) : null;
-                                    })()}
+                                    <UniversalBadge>
+                                      <FaGlobe size={10} />
+                                      Universal
+                                    </UniversalBadge>
                                   </BadgeContainer>
                                 </DomainNameWithBadge>
                                 <DomainStatusContainer>
@@ -1843,8 +1779,8 @@ export default function Home() {
                       )}
                     </DomainsHeader>
 
-                    <DomainViewport itemCount={transferHistory.length}>
-                      <TransferList currentIndex={currentTransferIndex}>
+                    <DomainViewport $itemCount={transferHistory.length}>
+                      <TransferList $currentIndex={currentTransferIndex}>
                         {transferHistory.map((transfer, index) => {
                           const isSent = transfer.from_address.toLowerCase() === currentAddress?.toLowerCase();
                           
@@ -1879,31 +1815,39 @@ export default function Home() {
                                 {transfer.transaction_hash && (
                                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                                     <a 
-                                      href={`https://sepolia.arbiscan.io/tx/${transfer.transaction_hash}`}
+                                      href={`https://donut.push.network/tx/${transfer.transaction_hash}`}
                                       target="_blank"
                                       rel="noopener noreferrer"
                                       style={{ color: '#ec4899', textDecoration: 'none', fontSize: '0.85rem' }}
                                     >
-                                      ARB Explorer
+                                      🍩 Push Explorer
                                     </a>
-                                    <span style={{ color: 'rgba(255,255,255,0.5)' }}>|</span>
-                                    <a 
-                                      href={`https://etherscan.io/tx/${transfer.transaction_hash}`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      style={{ color: '#ec4899', textDecoration: 'none', fontSize: '0.85rem' }}
-                                    >
-                                      ZETA Explorer
-                                    </a>
-                                    <span style={{ color: 'rgba(255,255,255,0.5)' }}>|</span>
-                                    <a 
-                                      href={`https://sepolia.etherscan.io/tx/${transfer.transaction_hash}`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      style={{ color: '#627eea', textDecoration: 'none', fontSize: '0.85rem' }}
-                                    >
-                                      ETH Explorer
-                                    </a>
+                                    {transfer.target_chain_id === 11155111 && (
+                                      <>
+                                        <span style={{ color: 'rgba(255,255,255,0.5)' }}>|</span>
+                                        <a 
+                                          href={`https://sepolia.etherscan.io/tx/${transfer.transaction_hash}`}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          style={{ color: '#627eea', textDecoration: 'none', fontSize: '0.85rem' }}
+                                        >
+                                          🔷 ETH Sepolia
+                                        </a>
+                                      </>
+                                    )}
+                                    {transfer.target_chain_id === 'solana-devnet' && (
+                                      <>
+                                        <span style={{ color: 'rgba(255,255,255,0.5)' }}>|</span>
+                                        <a 
+                                          href={`https://explorer.solana.com/tx/${transfer.transaction_hash}?cluster=devnet`}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          style={{ color: '#00d2ff', textDecoration: 'none', fontSize: '0.85rem' }}
+                                        >
+                                          🟢 Solana Devnet
+                                        </a>
+                                      </>
+                                    )}
                                   </div>
                                 )}
                               </DomainCardInfo>

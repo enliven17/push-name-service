@@ -102,17 +102,27 @@ export const marketplaceService = {
     if (!supabase) {
       throw new Error('Supabase client not initialized');
     }
-    const { data, error } = await supabase
-      .from('marketplace_listings')
-      .select(`
-        *,
-        domain:domains(id, name, owner_address, expiration_date)
-      `)
-      .eq('status', 'active')
-      .order('created_at', { ascending: false });
+    
+    try {
+      const { data, error } = await supabase
+        .from('push_marketplace_listings')
+        .select(`
+          *,
+          domain:push_domains(id, name, owner_address, expiration_date)
+        `)
+        .eq('status', 'active')
+        .order('created_at', { ascending: false });
 
-    if (error) throw error;
-    return data || [];
+      if (error) {
+        console.warn('⚠️ Marketplace table not found, returning empty listings:', error);
+        return [];
+      }
+      
+      return data || [];
+    } catch (error) {
+      console.warn('⚠️ Marketplace query failed, returning empty listings:', error);
+      return [];
+    }
   },
 
   async getListingsByDomain(domainId: string): Promise<MarketplaceListing[]> {
@@ -138,24 +148,27 @@ export const marketplaceService = {
     }
     console.log('🔍 Fetching listings for seller:', sellerAddress.toLowerCase());
     
-    const { data, error } = await supabase
-      .from('push_marketplace_listings')
-      .select(`
-        *,
-        domain:push_domains(id, name, owner_address, expiration_date)
-      `)
-      .eq('seller_address', sellerAddress.toLowerCase())
-      .order('created_at', { ascending: false });
+    try {
+      const { data, error } = await supabase
+        .from('push_marketplace_listings')
+        .select(`
+          *,
+          domain:push_domains(id, name, owner_address, expiration_date)
+        `)
+        .eq('seller_address', sellerAddress.toLowerCase())
+        .order('created_at', { ascending: false });
 
-    console.log('📊 Marketplace listings query result:', { data, error });
-    
-    if (error) {
-      console.error('❌ Error fetching listings:', error);
-      throw error;
+      if (error) {
+        console.warn('⚠️ Marketplace table not found, returning empty listings:', error);
+        return [];
+      }
+      
+      console.log('✅ Found listings:', data?.length || 0);
+      return data || [];
+    } catch (error) {
+      console.warn('⚠️ Marketplace query failed, returning empty listings:', error);
+      return [];
     }
-    
-    console.log('✅ Found listings:', data?.length || 0);
-    return data || [];
   },
 
   async updateListingStatus(

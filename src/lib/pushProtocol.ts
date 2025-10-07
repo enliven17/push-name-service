@@ -37,24 +37,41 @@ export class PushNameService {
 
   async initialize() {
     try {
+      // Check if wallet is available and unlocked
+      if (!this.config.signer) {
+        console.warn('⚠️ No signer available, skipping Push user initialization');
+        return null;
+      }
+
+      // Try to get existing user first
       this.user = await PushAPI.user.get({
         account: this.config.account,
         env: this.config.env
       });
 
       if (!this.user) {
+        console.log('📝 Creating new Push user...');
         // Create user if doesn't exist
         this.user = await PushAPI.user.create({
           account: this.config.account,
           env: this.config.env,
           signer: this.config.signer
         });
+        console.log('✅ Push user created successfully');
+      } else {
+        console.log('✅ Push user found');
       }
 
       return this.user;
-    } catch (error) {
-      console.error('Failed to initialize Push user:', error);
-      throw error;
+    } catch (error: any) {
+      console.warn('⚠️ Push user initialization failed:', error.message);
+      
+      // Don't throw error - continue without Push features
+      if (error.message?.includes('KeyringController') || error.message?.includes('locked')) {
+        console.warn('💡 MetaMask is locked. Push features will be disabled until wallet is unlocked.');
+      }
+      
+      return null;
     }
   }
 

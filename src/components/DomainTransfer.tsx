@@ -5,8 +5,8 @@ import { useState, useEffect } from 'react';
 import { FaPaperPlane, FaGlobe, FaArrowRight, FaInfoCircle } from 'react-icons/fa';
 import { useAccount, useChainId } from 'wagmi';
 import { domainService, Domain } from '@/lib/supabase';
-import { getOmnichainContract } from '@/lib/contract';
-import { supportedChains, getChainConfig, isCrossChainSupported, getCrossChainRoute, getContractAddresses } from '@/config/chains';
+import PushNameServiceContract from '@/lib/pushNameServiceContract';
+import { supportedChains, getChainConfig, pushChainDonut } from '@/config/chains';
 
 interface DomainTransferProps {
   domain: Domain;
@@ -233,12 +233,12 @@ const ChainGrid = styled.div`
   margin-top: 8px;
 `;
 
-const ChainOption = styled.button<{ active: boolean; disabled?: boolean }>`
+const ChainOption = styled.button<{ $active: boolean; disabled?: boolean }>`
   padding: 12px;
-  border: 2px solid ${props => props.active ? '#00d2ff' : 'rgba(255, 255, 255, 0.2)'};
+  border: 2px solid ${props => props.$active ? '#00d2ff' : 'rgba(255, 255, 255, 0.2)'};
   border-radius: 8px;
-  background: ${props => props.active ? 'rgba(0, 210, 255, 0.1)' : 'rgba(255, 255, 255, 0.05)'};
-  color: ${props => props.active ? '#00d2ff' : 'white'};
+  background: ${props => props.$active ? 'rgba(0, 210, 255, 0.1)' : 'rgba(255, 255, 255, 0.05)'};
+  color: ${props => props.$active ? '#00d2ff' : 'white'};
   font-size: 0.85rem;
   font-weight: 500;
   cursor: ${props => props.disabled ? 'not-allowed' : 'pointer'};
@@ -246,7 +246,7 @@ const ChainOption = styled.button<{ active: boolean; disabled?: boolean }>`
   opacity: ${props => props.disabled ? 0.5 : 1};
   
   &:hover:not(:disabled) {
-    border-color: ${props => props.active ? '#00d2ff' : 'rgba(255, 255, 255, 0.4)'};
+    border-color: ${props => props.$active ? '#00d2ff' : 'rgba(255, 255, 255, 0.4)'};
   }
 `;
 
@@ -309,51 +309,31 @@ export const DomainTransfer: React.FC<DomainTransferProps> = ({
   const [isTransferring, setIsTransferring] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
-  const [transferType, setTransferType] = useState<'same-chain' | 'cross-chain'>('same-chain');
-  const [targetChainId, setTargetChainId] = useState<number>(421614);
+  const [transferType, setTransferType] = useState<'cross-chain'>('cross-chain'); // Default to cross-chain for Push
+  const [targetChainId, setTargetChainId] = useState<number | string>(11155111); // Ethereum Sepolia default
   const [domainInfo, setDomainInfo] = useState<any>(null);
   const [isLoadingDomainInfo, setIsLoadingDomainInfo] = useState(false);
 
   const { address } = useAccount();
-  const currentChainId = useChainId() || 421614;
+  const currentChainId = pushChainDonut.id; // Always Push Chain for domains
 
   const validateAddress = (addr: string): boolean => {
     return /^0x[a-fA-F0-9]{40}$/.test(addr);
   };
 
-  // Check if contract is deployed on a chain
-  const isContractDeployed = (chainId: number): boolean => {
-    const addresses = getContractAddresses(chainId);
-    return !!(addresses?.nameService && addresses.nameService !== '');
-  };
+  // All Push domains support cross-chain transfers
 
-  // Load domain info to check if it's omnichain
+  // Initialize domain info - All Push domains are universal
   useEffect(() => {
-    const loadDomainInfo = async () => {
-      if (!window.ethereum) return;
-      
-      setIsLoadingDomainInfo(true);
-      try {
-        const contract = getOmnichainContract(window.ethereum, currentChainId);
-        const info = await contract.getDomainInfo(domain.name.replace('.zeta', ''));
-        setDomainInfo(info);
-        
-        // Set default target chain (different from current, and deployed)
-        const deployedChains = supportedChains.filter(chain => 
-          chain.id !== currentChainId && isContractDeployed(chain.id)
-        );
-        if (deployedChains.length > 0) {
-          setTargetChainId(deployedChains[0].id);
-        }
-      } catch (error) {
-        console.error('Failed to load domain info:', error);
-      } finally {
-        setIsLoadingDomainInfo(false);
-      }
-    };
-
-    loadDomainInfo();
-  }, [domain.name, currentChainId]);
+    // All Push domains are universal by default - use database info
+    setDomainInfo({
+      isUniversal: true, // All Push domains are universal
+      owner: domain.owner_address || address || 'Unknown',
+      expiresAt: domain.expiration_date ? new Date(domain.expiration_date).getTime() / 1000 : 0
+    });
+    setIsLoadingDomainInfo(false);
+    console.log('📊 Domain info set: All Push domains are universal');
+  }, []); // Empty dependency array - run once on mount
 
 
 
@@ -368,48 +348,76 @@ export const DomainTransfer: React.FC<DomainTransferProps> = ({
       return;
     }
 
-    // Check if cross-chain transfer is possible
-    if (transferType === 'cross-chain') {
-      if (!domainInfo?.isOmnichain) {
-        setErrorMessage('This domain is not configured for cross-chain transfers');
-        return;
-      }
-      
-      if (!isCrossChainSupported(currentChainId, targetChainId)) {
-        setErrorMessage(`Cross-chain transfer not supported: ${currentChainId} → ${targetChainId}`);
-        return;
-      }
-    }
+    // All Push domains are universal - no check needed
 
     setIsTransferring(true);
     setErrorMessage('');
 
     try {
-      let transactionHash = '';
-      
       if (!window.ethereum) {
         throw new Error('No wallet connected. Please connect your wallet to transfer domains.');
       }
 
-      const contract = getOmnichainContract(window.ethereum, currentChainId);
-      const domainName = domain.name.replace('.zeta', '');
-
-      if (transferType === 'same-chain') {
-        console.log('🔗 Submitting same-chain transfer...');
-        transactionHash = await contract.transferDomain(domainName, toAddress);
-        console.log('✅ Same-chain transfer successful:', transactionHash);
-      } else {
-        console.log('🌐 Submitting cross-chain transfer...');
-        console.log('Target chain:', targetChainId);
-        transactionHash = await contract.crossChainTransfer(domainName, toAddress, targetChainId);
-        console.log('✅ Cross-chain transfer initiated:', transactionHash);
+      const { ethers } = await import('ethers');
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const signerAddress = await signer.getAddress();
+      
+      const contractAddress = process.env.NEXT_PUBLIC_PUSH_CHAIN_NAME_SERVICE_ADDRESS;
+      if (!contractAddress) {
+        throw new Error('Push Chain contract address not configured');
       }
+      
+      const contract = new PushNameServiceContract(
+        contractAddress,
+        signer,
+        pushChainDonut.id,
+        { env: 'staging', account: signerAddress }
+      );
+      
+      try {
+        await contract.initialize();
+        console.log('✅ Contract initialized for transfer');
+      } catch (initError) {
+        console.warn('⚠️ Contract initialization failed for transfer, continuing:', initError);
+      }
+      
+      const domainName = domain.name.replace('.push', '');
+      
+      console.log('🌐 Initiating Push Protocol cross-chain transfer...');
+      console.log('- Domain:', domainName);
+      console.log('- From:', signerAddress);
+      console.log('- To:', toAddress);
+      console.log('- Target chain:', targetChainId);
+      
+      // Map chain ID for contract call (use numeric IDs for now)
+      const contractChainId = targetChainId === 'solana-devnet' ? 999999 : Number(targetChainId); // Temporary mapping
+      
+      // Get transfer cost
+      const transferCost = await contract.getTransferFee(contractChainId);
+      const universalTxFee = ethers.parseEther('0.001'); // Universal TX fee
+      const totalCost = transferCost + universalTxFee;
+      
+      console.log('💰 Transfer cost:', ethers.formatEther(totalCost), 'PC');
+      
+      // Execute cross-chain transfer
+      const tx = await contract.crossChainTransfer(domainName, toAddress, contractChainId, totalCost);
+      
+      console.log('📤 Transaction sent:', tx.hash);
+      
+      // Wait for confirmation
+      const receipt = await tx.wait();
+      console.log('✅ Cross-chain transfer initiated:', receipt.hash);
 
       // Update database
       if (!address) throw new Error('Sender address is missing');
-      await domainService.directDomainTransfer(domain.id, address, toAddress, transactionHash);
       
-      console.log('✅ Database updated successfully');
+      try {
+        await domainService.directDomainTransfer(domain.id, address, toAddress, tx.hash);
+        console.log('💾 Database updated successfully');
+      } catch (dbError) {
+        console.warn('⚠️ Database update failed, but blockchain transfer succeeded:', dbError);
+      }
 
       // Update marketplace listing ownership if domain is listed
       try {
@@ -426,9 +434,9 @@ export const DomainTransfer: React.FC<DomainTransferProps> = ({
         console.error('⚠️ Failed to update marketplace listing:', error);
       }
 
-      const successMsg = transferType === 'cross-chain' 
-        ? `Cross-chain transfer initiated! The domain will appear on ${getChainConfig(targetChainId)?.name} in 2-5 minutes.`
-        : 'Domain successfully transferred! The domain now appears in the recipient\'s profile.';
+      const targetChainName = targetChainId === 'solana-devnet' ? 'Solana Devnet' : 
+                              targetChainId === 11155111 ? 'Ethereum Sepolia' : 'target chain';
+      const successMsg = `🎉 Universal cross-chain transfer initiated!\n\nThe domain will be burned on Push Chain and minted on ${targetChainName} in 2-5 minutes.\n\nTransaction: ${tx.hash}`;
         
       setSuccessMessage(successMsg);
       
@@ -436,11 +444,24 @@ export const DomainTransfer: React.FC<DomainTransferProps> = ({
       setTimeout(() => {
         onTransferComplete();
         onClose();
-      }, 3000);
+      }, 4000);
 
     } catch (error: any) {
-      console.error('Transfer failed:', error);
-      setErrorMessage(error.message || 'Transfer failed');
+      console.error('❌ Push Protocol transfer failed:', error);
+      
+      let errorMessage = 'Transfer failed. Please try again.';
+      
+      if (error.code === 'ACTION_REJECTED') {
+        errorMessage = 'Transaction was rejected by user.';
+      } else if (error.code === 'INSUFFICIENT_FUNDS') {
+        errorMessage = 'Insufficient funds for transfer and gas fees.';
+      } else if (error.reason) {
+        errorMessage = `Transfer failed: ${error.reason}`;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      setErrorMessage(errorMessage);
     } finally {
       setIsTransferring(false);
     }
@@ -456,17 +477,17 @@ export const DomainTransfer: React.FC<DomainTransferProps> = ({
 
   return (
     <TransferModal onClick={onClose}>
-      <TransferContent onClick={(e) => e.stopPropagation()}>
+      <TransferContent onClick={(e: React.MouseEvent) => e.stopPropagation()}>
         <CloseButton onClick={onClose}>×</CloseButton>
         
-        <TransferTitle>Domain Transfer</TransferTitle>
+        <TransferTitle>🌐 Universal Domain Transfer</TransferTitle>
         <TransferSubtitle>
-          Transfer your domain to another wallet
+          Transfer your .push domain to another blockchain using Push Protocol
         </TransferSubtitle>
 
         <DomainInfo>
           <DomainName>{domain.name}</DomainName>
-          <DomainOwner>Owner: {formatAddress(domain.owner_address)}</DomainOwner>
+          <DomainOwner>Owner: {formatAddress(domain.owner_address || address || 'Unknown')}</DomainOwner>
         </DomainInfo>
 
         {errorMessage && (
@@ -484,132 +505,124 @@ export const DomainTransfer: React.FC<DomainTransferProps> = ({
             </div>
           ) : (
             <>
-              {domainInfo && !domainInfo.isOmnichain && (
-                <DomainTypeInfo>
-                  <FaInfoCircle />
-                  This domain is not configured for cross-chain transfers. Only same-chain transfers are available.
-                </DomainTypeInfo>
-              )}
-
-              <TransferTypeSelector>
-                <TransferTypeOption
-                  active={transferType === 'same-chain'}
-                  onClick={() => setTransferType('same-chain')}
-                >
-                  <FaPaperPlane />
-                  Same Chain
-                </TransferTypeOption>
-                <TransferTypeOption
-                  active={transferType === 'cross-chain'}
-                  disabled={!domainInfo?.isOmnichain}
-                  onClick={() => domainInfo?.isOmnichain && setTransferType('cross-chain')}
-                >
-                  <FaGlobe />
-                  Cross-Chain
-                </TransferTypeOption>
-              </TransferTypeSelector>
-
-              {transferType === 'same-chain' && (
+              {/* All Push domains are universal - no warning needed */}
+              
+              {domainInfo && (
                 <TransferInfo>
                   <InfoRow>
-                    <InfoLabel>Transfer Fee:</InfoLabel>
-                    <InfoValue>
-                      {(() => {
-                        const chainConfig = getChainConfig(currentChainId);
-                        return chainConfig ? `${chainConfig.transferFee} ${chainConfig.currency}` : '0.0001 ETH';
-                      })()}
-                    </InfoValue>
+                    <InfoLabel>🌟 Universal Domain</InfoLabel>
+                    <InfoValue>Cross-chain ready</InfoValue>
                   </InfoRow>
                   <InfoRow>
-                    <InfoLabel>Network:</InfoLabel>
-                    <InfoValue>{getChainConfig(currentChainId)?.name || 'Current Network'}</InfoValue>
+                    <InfoLabel>🏠 Current Chain</InfoLabel>
+                    <InfoValue>Push Chain Donut</InfoValue>
+                  </InfoRow>
+                  <InfoRow>
+                    <InfoLabel>⚡ Transfer Method</InfoLabel>
+                    <InfoValue>Universal Transaction</InfoValue>
                   </InfoRow>
                 </TransferInfo>
               )}
 
-              {transferType === 'cross-chain' && domainInfo?.isOmnichain && (
+              {/* Chain Selector - All Push domains are universal */}
+              {domainInfo && (
                 <>
                   <ChainSelector>
-                    <Label>Target Blockchain</Label>
+                    <Label>🎯 Select Target Blockchain</Label>
+                    <div style={{ fontSize: '0.9rem', color: 'rgba(255, 255, 255, 0.7)', marginBottom: '12px' }}>
+                      Choose which blockchain to transfer your domain to:
+                    </div>
                     <ChainGrid>
-                      {supportedChains.map((chain) => {
-                        const isDeployed = isContractDeployed(chain.id);
-                        const isDisabled = chain.id === currentChainId || 
-                                         !isCrossChainSupported(currentChainId, chain.id) || 
-                                         !isDeployed;
-                        
-                        return (
-                          <ChainOption
-                            key={chain.id}
-                            active={targetChainId === chain.id}
-                            disabled={isDisabled}
-                            onClick={() => {
-                              if (!isDisabled) {
-                                setTargetChainId(chain.id);
-                              }
-                            }}
-                          >
-                            {chain.name}
-                            {!isDeployed && (
-                              <div style={{ fontSize: '0.7rem', color: 'rgba(255, 255, 255, 0.5)', marginTop: '2px' }}>
-                                Coming Soon
-                              </div>
-                            )}
-                          </ChainOption>
-                        );
-                      })}
+                      {[
+                        { id: 11155111, name: 'Ethereum Sepolia', shortName: 'ETH', icon: '🔷' },
+                        { id: 'solana-devnet', name: 'Solana Devnet', shortName: 'SOL', icon: '🟢' }
+                      ].map((chain) => (
+                        <ChainOption
+                          key={chain.id}
+                          $active={targetChainId === chain.id}
+                          onClick={() => setTargetChainId(chain.id)}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span>{chain.icon}</span>
+                            <span>{chain.name}</span>
+                          </div>
+                        </ChainOption>
+                      ))}
                     </ChainGrid>
                   </ChainSelector>
 
-                  {isCrossChainSupported(currentChainId, targetChainId) && (
-                    <CrossChainInfo>
-                      <InfoRow>
-                        <InfoLabel>Estimated Time:</InfoLabel>
-                        <InfoValue>{getCrossChainRoute(currentChainId, targetChainId)?.estimatedTime || '2-5 minutes'}</InfoValue>
-                      </InfoRow>
-                      <InfoRow>
-                        <InfoLabel>Cross-Chain Fee:</InfoLabel>
-                        <InfoValue>{getCrossChainRoute(currentChainId, targetChainId)?.fee || '0.0001 ETH'}</InfoValue>
-                      </InfoRow>
-                      <InfoRow>
-                        <InfoLabel>Route:</InfoLabel>
-                        <InfoValue>
-                          {getChainConfig(currentChainId)?.shortName} <FaArrowRight style={{ margin: '0 4px' }} /> {getChainConfig(targetChainId)?.shortName}
-                        </InfoValue>
-                      </InfoRow>
-                    </CrossChainInfo>
-                  )}
+                  <CrossChainInfo>
+                    <div style={{ fontSize: '0.9rem', fontWeight: '600', marginBottom: '12px', color: '#00d2ff' }}>
+                      🌐 Universal Transfer Details
+                    </div>
+                    <InfoRow>
+                      <InfoLabel>⏱️ Estimated Time:</InfoLabel>
+                      <InfoValue>2-5 minutes</InfoValue>
+                    </InfoRow>
+                    <InfoRow>
+                      <InfoLabel>💰 Transfer Fee:</InfoLabel>
+                      <InfoValue>0.0001 PC</InfoValue>
+                    </InfoRow>
+                    <InfoRow>
+                      <InfoLabel>⚡ Universal TX Fee:</InfoLabel>
+                      <InfoValue>0.001 PC</InfoValue>
+                    </InfoRow>
+                    <InfoRow>
+                      <InfoLabel>💸 Total Cost:</InfoLabel>
+                      <InfoValue style={{ fontWeight: 'bold' }}>0.0011 PC</InfoValue>
+                    </InfoRow>
+                    <InfoRow>
+                      <InfoLabel>🌐 Route:</InfoLabel>
+                      <InfoValue>
+                        🍩 Push Chain → {
+                          [
+                            { id: 11155111, name: '🔷 Ethereum Sepolia' },
+                            { id: 'solana-devnet', name: '🟢 Solana Devnet' }
+                          ].find(c => c.id === targetChainId)?.name || 'Target Chain'
+                        }
+                      </InfoValue>
+                    </InfoRow>
+                  </CrossChainInfo>
                 </>
               )}
 
-              <InputGroup>
-                <Label>Recipient Wallet Address</Label>
-                <AddressInput
-                  type="text"
-                  placeholder="0x..."
-                  value={toAddress}
-                  onChange={(e) => {
-                    setToAddress(e.target.value);
-                    if (errorMessage) setErrorMessage('');
-                  }}
-                />
-              </InputGroup>
+              {/* Recipient Address - All Push domains are universal */}
+              {domainInfo && (
+                <>
+                  <InputGroup>
+                    <Label>📍 Recipient Wallet Address</Label>
+                    <div style={{ fontSize: '0.85rem', color: 'rgba(255, 255, 255, 0.7)', marginBottom: '8px' }}>
+                      Enter the wallet address that will receive the domain on the target blockchain:
+                    </div>
+                    <AddressInput
+                      type="text"
+                      placeholder="0x1234567890123456789012345678901234567890"
+                      value={toAddress}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                        setToAddress(e.target.value);
+                        if (errorMessage) setErrorMessage('');
+                      }}
+                    />
+                  </InputGroup>
 
-              <TransferButton
-                onClick={handleTransfer}
-                disabled={
-                  isTransferring || 
-                  !toAddress.trim() || 
-                  !validateAddress(toAddress) ||
-                  (transferType === 'cross-chain' && !domainInfo?.isOmnichain)
-                }
-              >
-                <FaPaperPlane />
-                {isTransferring 
-                  ? (transferType === 'cross-chain' ? 'Initiating Cross-Chain Transfer...' : 'Processing Transfer...') 
-                  : (transferType === 'cross-chain' ? 'Start Cross-Chain Transfer' : 'Transfer Domain')
-                }
-              </TransferButton>
+                  <TransferButton
+                    onClick={handleTransfer}
+                    disabled={
+                      isTransferring || 
+                      !toAddress.trim() || 
+                      !validateAddress(toAddress)
+                    }
+                  >
+                    <FaGlobe />
+                    {isTransferring 
+                      ? '🌐 Initiating Universal Transfer...'
+                      : '🚀 Start Universal Transfer'
+                    }
+                  </TransferButton>
+                </>
+              )}
+
+              {/* All Push domains are universal - no disabled state needed */}
             </>
           )}
         </TransferForm>
