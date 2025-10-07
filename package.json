@@ -19,8 +19,8 @@
     "deploy:testnet": "npm run deploy:push-chain && npm run deploy:ethereum-sepolia",
     "deploy:all": "npm run deploy:push-chain && npm run deploy:ethereum && npm run deploy:polygon && npm run deploy:bsc && npm run deploy:arbitrum && npm run deploy:optimism",
     "test": "hardhat test",
-    "test:push-chain": "hardhat run scripts/test-push-chain.js --network pushChainDonut",
-    "test:ethereum-sepolia": "hardhat run scripts/test-push-chain.js --network ethereumSepolia"
+    "test:push-chain": "hardhat run scripts/test-push-name-service.js --network pushChainDonut",
+    "test:ethereum-sepolia": "hardhat run scripts/test-push-name-service.js --network ethereumSepolia"
   },
   "dependencies": {
     "@creit.tech/stellar-wallets-kit": "^1.7.6",
@@ -34,7 +34,6 @@
     "@walletconnect/ethereum-provider": "^2.21.8",
     "@walletconnect/modal": "^2.7.0",
     "@walletconnect/web3-provider": "^1.8.0",
-
     "babel-plugin-styled-components": "^2.1.4",
     "clsx": "^2.1.1",
     "ethers": "^6.9.0",
@@ -51,15 +50,27 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3",
     "@moved/hardhat-plugin": "^0.2.1",
+    "@nomicfoundation/hardhat-chai-matchers": "^2.1.0",
+    "@nomicfoundation/hardhat-ethers": "^3.1.0",
+    "@nomicfoundation/hardhat-network-helpers": "^1.1.0",
     "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "@nomicfoundation/hardhat-verify": "^2.1.1",
     "@openzeppelin/contracts": "^4.9.0",
+    "@typechain/ethers-v6": "^0.5.1",
+    "@typechain/hardhat": "^9.1.0",
+    "@types/chai": "^4.3.20",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "chai": "^4.5.0",
     "dotenv": "^16.3.1",
     "eslint": "^9",
     "eslint-config-next": "15.4.4",
     "hardhat": "^2.19.0",
+    "hardhat-gas-reporter": "^1.0.10",
+    "solidity-coverage": "^0.8.16",
+    "ts-node": "^10.9.2",
+    "typechain": "^8.3.2",
     "typescript": "^5"
   }
 }

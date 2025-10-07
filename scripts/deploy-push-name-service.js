@@ -11,7 +11,8 @@ async function main() {
   console.log("📋 Deployment Details:");
   console.log("- Network:", network.name, `(Chain ID: ${network.chainId})`);
   console.log("- Deployer:", deployer.address);
-  console.log("- Balance:", ethers.utils.formatEther(await deployer.getBalance()), "ETH");
+  const balance = await ethers.provider.getBalance(deployer.address);
+  console.log("- Balance:", ethers.formatEther(balance), "PC");
   
   // Get Push Core contract address for the current network
   const pushCoreAddresses = {
@@ -37,16 +38,21 @@ async function main() {
   
   const nameService = await PushUniversalNameService.deploy(
     deployer.address, // initial owner
-    pushCoreAddress   // Push Core contract address
+    pushCoreAddress,  // Push Core contract address
+    deployer.address  // treasury address (initially deployer)
   );
   
-  await nameService.deployed();
+  await nameService.waitForDeployment();
   
-  console.log("✅ PushUniversalNameService deployed to:", nameService.address);
+  const contractAddress = await nameService.getAddress();
+  console.log("✅ PushUniversalNameService deployed to:", contractAddress);
   
   // Wait for a few block confirmations
   console.log("⏳ Waiting for block confirmations...");
-  await nameService.deployTransaction.wait(3);
+  const deployTx = nameService.deploymentTransaction();
+  if (deployTx) {
+    await deployTx.wait(3);
+  }
   
   // Verify deployment
   console.log("\n🔍 Verifying deployment...");
@@ -72,15 +78,15 @@ async function main() {
     deployer: deployer.address,
     contracts: {
       PushUniversalNameService: {
-        address: nameService.address,
-        deploymentHash: nameService.deployTransaction.hash,
-        blockNumber: nameService.deployTransaction.blockNumber,
+        address: contractAddress,
+        deploymentHash: deployTx ? deployTx.hash : "N/A",
+        blockNumber: deployTx ? deployTx.blockNumber : "N/A",
       }
     },
     pushCoreAddress,
     timestamp: new Date().toISOString(),
     gasUsed: {
-      PushUniversalNameService: nameService.deployTransaction.gasLimit?.toString() || "N/A"
+      PushUniversalNameService: deployTx ? deployTx.gasLimit?.toString() || "N/A" : "N/A"
     }
   };
   
@@ -94,23 +100,24 @@ async function main() {
   const filename = `push-name-service-deployment-${network.chainId}-${Date.now()}.json`;
   const filepath = path.join(deploymentsDir, filename);
   
-  fs.writeFileSync(filepath, JSON.stringify(deploymentInfo, null, 2));
+  fs.writeFileSync(filepath, JSON.stringify(deploymentInfo, (key, value) =>
+    typeof value === 'bigint' ? value.toString() : value, 2));
   console.log(`\n💾 Deployment info saved to: ${filename}`);
   
   // Print environment variables to add
   console.log("\n📝 Add these to your .env file:");
-  console.log(`NEXT_PUBLIC_PUSH_NAME_SERVICE_${getChainEnvName(network.chainId)}=${nameService.address}`);
+  console.log(`NEXT_PUBLIC_PUSH_NAME_SERVICE_${getChainEnvName(network.chainId)}=${contractAddress}`);
   
   // Print verification command
   if (network.chainId !== 31337) { // Not localhost
     console.log("\n🔗 Verify contract with:");
-    console.log(`npx hardhat verify --network ${network.name} ${nameService.address} "${deployer.address}" "${pushCoreAddress}"`);
+    console.log(`npx hardhat verify --network ${network.name} ${contractAddress} "${deployer.address}" "${pushCoreAddress}" "${deployer.address}"`);
   }
   
   console.log("\n🎉 Deployment completed successfully!");
   
   return {
-    nameService: nameService.address,
+    nameService: contractAddress,
     deployer: deployer.address,
     network: network.name,
     chainId: network.chainId

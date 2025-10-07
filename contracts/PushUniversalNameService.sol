@@ -2,17 +2,38 @@
 pragma solidity ^0.8.19;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/security/Pausable.sol";
+import "@openzeppelin/contracts/utils/Counters.sol";
 
 /// @title Push Universal Name Service
-/// @notice Cross-chain domain name service using Push Protocol for .push domains
-contract PushUniversalNameService is Ownable {
+/// @notice Fully on-chain domain name service using Push Protocol for .push domains
+/// @dev Supports universal domains that work across multiple blockchains
+contract PushUniversalNameService is Ownable, ReentrancyGuard, Pausable {
+    using Counters for Counters.Counter;
+    // Domain counter for unique IDs
+    Counters.Counter private _domainIdCounter;
+    
     struct DomainRecord {
+        uint256 id;
         address owner;
         uint64 expiresAt;
+        uint64 registeredAt;
         uint256 sourceChainId;
+        uint256 currentChainId;
         bool isUniversal;
-        string ipfsHash; // For decentralized content storage
-        mapping(string => string) records; // DNS-like records (A, CNAME, etc.)
+        string ipfsHash;
+        uint256 renewalCount;
+        bool isLocked; // For transfer protection
+    }
+    
+    struct DomainMetadata {
+        string description;
+        string avatar;
+        string website;
+        string email;
+        string twitter;
+        string discord;
     }
 
     struct ChainConfig {
@@ -23,18 +44,40 @@ contract PushUniversalNameService is Ownable {
         string explorerUrl;
     }
 
-    // name (lowercase) => record
+    // Core mappings
     mapping(string => DomainRecord) private nameToRecord;
+    mapping(string => mapping(string => string)) private domainRecords; // domain => recordType => value
+    mapping(string => DomainMetadata) private domainMetadata;
+    mapping(address => string[]) private ownerToDomains;
+    mapping(uint256 => string) private idToDomain;
     
-    // chainId => chain configuration
+    // Chain and protocol configuration
     mapping(uint256 => ChainConfig) public supportedChains;
-    
-    // Cross-chain message tracking
     mapping(bytes32 => bool) public processedMessages;
-    
-    // Push Protocol integration
     mapping(address => bool) public authorizedPushNodes;
+    mapping(address => bool) public authorizedResolvers;
+    
+    // Marketplace
+    mapping(string => MarketplaceListing) public domainListings;
+    mapping(address => uint256) public pendingWithdrawals;
+    
+    // Statistics
+    mapping(address => uint256) public userDomainCount;
+    mapping(address => uint256) public userUniversalDomainCount;
+    uint256 public totalDomains;
+    uint256 public totalUniversalDomains;
+    
+    // Protocol addresses
     address public pushCoreContract;
+    address public treasuryAddress;
+    
+    struct MarketplaceListing {
+        address seller;
+        uint256 price;
+        uint256 listedAt;
+        bool active;
+        string currency; // "ETH", "MATIC", etc.
+    }
 
     uint256 public constant REGISTRATION_DURATION = 365 days;
     uint256 public constant BASE_REGISTRATION_PRICE = 0.001 ether;
@@ -45,24 +88,39 @@ contract PushUniversalNameService is Ownable {
     uint8 constant CROSS_CHAIN_MINT = 2;
     uint8 constant UPDATE_RECORDS = 3;
 
-    event Registered(
+    // Events
+    event DomainRegistered(
+        uint256 indexed domainId,
         string indexed name, 
         address indexed owner, 
         uint256 expiresAt, 
         uint256 chainId,
-        bool isUniversal
+        bool isUniversal,
+        uint256 price
     );
-    event Renewed(string indexed name, uint256 newExpiresAt);
-    event Transferred(
+    event DomainRenewed(
+        string indexed name, 
+        address indexed owner,
+        uint256 newExpiresAt,
+        uint256 renewalCount
+    );
+    event DomainTransferred(
         string indexed name, 
         address indexed from, 
         address indexed to,
         uint256 sourceChainId,
         uint256 targetChainId
     );
-    event CrossChainTransfer(
+    event CrossChainTransferInitiated(
         string indexed name,
         address indexed from,
+        address indexed to,
+        uint256 sourceChainId,
+        uint256 targetChainId,
+        bytes32 messageId
+    );
+    event CrossChainTransferCompleted(
+        string indexed name,
         address indexed to,
         uint256 sourceChainId,
         uint256 targetChainId,
@@ -71,19 +129,48 @@ contract PushUniversalNameService is Ownable {
     event RecordUpdated(
         string indexed name,
         string indexed recordType,
-        string value
+        string oldValue,
+        string newValue
+    );
+    event MetadataUpdated(
+        string indexed name,
+        address indexed owner
+    );
+    event DomainListed(
+        string indexed name,
+        address indexed seller,
+        uint256 price,
+        string currency
+    );
+    event DomainSold(
+        string indexed name,
+        address indexed seller,
+        address indexed buyer,
+        uint256 price,
+        string currency
+    );
+    event DomainDelisted(
+        string indexed name,
+        address indexed seller
     );
     event ChainAdded(uint256 chainId, uint256 registrationPrice, uint256 transferFee);
     event PushNodeAuthorized(address indexed node, bool authorized);
+    event ResolverAuthorized(address indexed resolver, bool authorized);
+    event TreasuryUpdated(address indexed oldTreasury, address indexed newTreasury);
 
     modifier onlyAuthorizedPushNode() {
         require(authorizedPushNodes[msg.sender] || msg.sender == owner(), "UNAUTHORIZED_PUSH_NODE");
         _;
     }
 
-    constructor(address initialOwner, address _pushCoreContract) {
+    constructor(
+        address initialOwner, 
+        address _pushCoreContract,
+        address _treasuryAddress
+    ) {
         _transferOwnership(initialOwner);
         pushCoreContract = _pushCoreContract;
+        treasuryAddress = _treasuryAddress;
         
         // Initialize supported chains for Push Protocol
         // Ethereum Mainnet
@@ -225,12 +312,16 @@ contract PushUniversalNameService is Ownable {
     }
 
     function getRecord(string calldata name, string calldata recordType) external view returns (string memory) {
-        DomainRecord storage rec = nameToRecord[_toLower(name)];
+        string memory n = _toLower(name);
+        DomainRecord storage rec = nameToRecord[n];
         require(rec.owner != address(0) && !_isExpired(rec), "DOMAIN_NOT_EXISTS_OR_EXPIRED");
-        return rec.records[recordType];
+        return domainRecords[n][recordType];
     }
 
-    function register(string calldata name, bool makeUniversal) external payable {
+    function register(
+        string calldata name, 
+        bool makeUniversal
+    ) external payable nonReentrant whenNotPaused {
         uint256 currentChainId = block.chainid;
         ChainConfig memory chainConfig = supportedChains[currentChainId];
         require(chainConfig.isSupported, "CHAIN_NOT_SUPPORTED");
@@ -242,13 +333,56 @@ contract PushUniversalNameService is Ownable {
         DomainRecord storage rec = nameToRecord[n];
         require(rec.owner == address(0) || _isExpired(rec), "DOMAIN_TAKEN");
 
+        // Generate unique domain ID
+        _domainIdCounter.increment();
+        uint256 domainId = _domainIdCounter.current();
+
+        // Set domain record
         uint64 newExpiry = uint64(block.timestamp + REGISTRATION_DURATION);
+        rec.id = domainId;
         rec.owner = msg.sender;
         rec.expiresAt = newExpiry;
+        rec.registeredAt = uint64(block.timestamp);
         rec.sourceChainId = currentChainId;
+        rec.currentChainId = currentChainId;
         rec.isUniversal = makeUniversal;
+        rec.renewalCount = 0;
+        rec.isLocked = false;
 
-        emit Registered(n, msg.sender, newExpiry, currentChainId, makeUniversal);
+        // Update mappings
+        ownerToDomains[msg.sender].push(n);
+        idToDomain[domainId] = n;
+        
+        // Update statistics
+        userDomainCount[msg.sender]++;
+        totalDomains++;
+        
+        if (makeUniversal) {
+            userUniversalDomainCount[msg.sender]++;
+            totalUniversalDomains++;
+        }
+
+        // Handle payment
+        uint256 treasuryAmount = (msg.value * 90) / 100; // 90% to treasury
+        uint256 refund = msg.value - chainConfig.registrationPrice;
+        
+        if (treasuryAmount > 0) {
+            pendingWithdrawals[treasuryAddress] += treasuryAmount;
+        }
+        
+        if (refund > 0) {
+            payable(msg.sender).transfer(refund);
+        }
+
+        emit DomainRegistered(
+            domainId,
+            n, 
+            msg.sender, 
+            newExpiry, 
+            currentChainId, 
+            makeUniversal,
+            chainConfig.registrationPrice
+        );
     }
 
     function renew(string calldata name) external payable {
@@ -264,7 +398,7 @@ contract PushUniversalNameService is Ownable {
 
         uint64 newExpiry = rec.expiresAt + uint64(REGISTRATION_DURATION);
         rec.expiresAt = newExpiry;
-        emit Renewed(n, newExpiry);
+        emit DomainRenewed(n, msg.sender, newExpiry, rec.renewalCount);
     }
 
     function setRecord(
@@ -277,8 +411,9 @@ contract PushUniversalNameService is Ownable {
         require(rec.owner == msg.sender, "NOT_OWNER");
         require(!_isExpired(rec), "DOMAIN_EXPIRED");
 
-        rec.records[recordType] = value;
-        emit RecordUpdated(n, recordType, value);
+        string memory oldValue = domainRecords[n][recordType];
+        domainRecords[n][recordType] = value;
+        emit RecordUpdated(n, recordType, oldValue, value);
     }
 
     function setIPFSHash(string calldata name, string calldata ipfsHash) external {
@@ -287,8 +422,9 @@ contract PushUniversalNameService is Ownable {
         require(rec.owner == msg.sender, "NOT_OWNER");
         require(!_isExpired(rec), "DOMAIN_EXPIRED");
 
+        string memory oldHash = rec.ipfsHash;
         rec.ipfsHash = ipfsHash;
-        emit RecordUpdated(n, "IPFS", ipfsHash);
+        emit RecordUpdated(n, "IPFS", oldHash, ipfsHash);
     }
 
     function transfer(string calldata name, address to) external {
@@ -300,7 +436,7 @@ contract PushUniversalNameService is Ownable {
         require(!_isExpired(rec), "DOMAIN_EXPIRED");
 
         rec.owner = to;
-        emit Transferred(n, msg.sender, to, block.chainid, block.chainid);
+        emit DomainTransferred(n, msg.sender, to, block.chainid, block.chainid);
     }
 
     // Cross-chain transfer using Push Protocol
@@ -341,7 +477,7 @@ contract PushUniversalNameService is Ownable {
         delete nameToRecord[n];
 
         // Emit cross-chain transfer event (Push Protocol will listen to this)
-        emit CrossChainTransfer(n, msg.sender, to, currentChainId, targetChainId, messageId);
+        emit CrossChainTransferInitiated(n, msg.sender, to, currentChainId, targetChainId, messageId);
         
         // The actual cross-chain message will be handled by Push Protocol infrastructure
         // This event will be picked up by Push nodes and relayed to the target chain
@@ -352,7 +488,7 @@ contract PushUniversalNameService is Ownable {
         string calldata name,
         address to,
         uint256 sourceChainId,
-        uint64 expiresAt,
+        uint64 domainExpiresAt,
         string calldata ipfsHash,
         bytes32 messageId
     ) external onlyAuthorizedPushNode {
@@ -365,13 +501,13 @@ contract PushUniversalNameService is Ownable {
         // Mint domain on target chain
         DomainRecord storage rec = nameToRecord[n];
         rec.owner = to;
-        rec.expiresAt = expiresAt;
+        rec.expiresAt = domainExpiresAt;
         rec.sourceChainId = sourceChainId;
         rec.isUniversal = true;
         rec.ipfsHash = ipfsHash;
 
-        emit Registered(n, to, expiresAt, block.chainid, true);
-        emit Transferred(n, address(0), to, sourceChainId, block.chainid);
+        emit DomainRegistered(0, n, to, domainExpiresAt, block.chainid, true, 0);
+        emit DomainTransferred(n, address(0), to, sourceChainId, block.chainid);
     }
 
     function getSupportedChains() external view returns (uint256[] memory) {
@@ -405,11 +541,105 @@ contract PushUniversalNameService is Ownable {
         rec.expiresAt = newExpiry;
     }
 
+    // Marketplace functions
+    function listDomain(
+        string calldata name,
+        uint256 price,
+        string calldata currency
+    ) external {
+        string memory n = _toLower(name);
+        DomainRecord storage rec = nameToRecord[n];
+        require(rec.owner == msg.sender, "NOT_OWNER");
+        require(!_isExpired(rec), "DOMAIN_EXPIRED");
+        require(!rec.isLocked, "DOMAIN_LOCKED");
+        require(price > 0, "INVALID_PRICE");
+
+        domainListings[n] = MarketplaceListing({
+            seller: msg.sender,
+            price: price,
+            listedAt: block.timestamp,
+            active: true,
+            currency: currency
+        });
+
+        emit DomainListed(n, msg.sender, price, currency);
+    }
+
+    function buyDomain(string calldata name) external payable nonReentrant {
+        string memory n = _toLower(name);
+        MarketplaceListing storage listing = domainListings[n];
+        require(listing.active, "NOT_LISTED");
+        require(msg.value >= listing.price, "INSUFFICIENT_PAYMENT");
+
+        DomainRecord storage rec = nameToRecord[n];
+        require(!_isExpired(rec), "DOMAIN_EXPIRED");
+
+        address seller = listing.seller;
+        uint256 price = listing.price;
+
+        // Transfer domain
+        _transferDomain(n, seller, msg.sender);
+
+        // Handle payment
+        uint256 fee = (price * 5) / 100; // 5% marketplace fee
+        uint256 sellerAmount = price - fee;
+
+        pendingWithdrawals[seller] += sellerAmount;
+        pendingWithdrawals[treasuryAddress] += fee;
+
+        // Refund excess payment
+        if (msg.value > price) {
+            payable(msg.sender).transfer(msg.value - price);
+        }
+
+        // Clear listing
+        delete domainListings[n];
+
+        emit DomainSold(n, seller, msg.sender, price, listing.currency);
+    }
+
+    function delistDomain(string calldata name) external {
+        string memory n = _toLower(name);
+        MarketplaceListing storage listing = domainListings[n];
+        require(listing.seller == msg.sender, "NOT_SELLER");
+        require(listing.active, "NOT_LISTED");
+
+        delete domainListings[n];
+        emit DomainDelisted(n, msg.sender);
+    }
+
+    // Metadata functions
+    function setDomainMetadata(
+        string calldata name,
+        string calldata description,
+        string calldata avatar,
+        string calldata website,
+        string calldata email,
+        string calldata twitter,
+        string calldata discord
+    ) external {
+        string memory n = _toLower(name);
+        DomainRecord storage rec = nameToRecord[n];
+        require(rec.owner == msg.sender, "NOT_OWNER");
+        require(!_isExpired(rec), "DOMAIN_EXPIRED");
+
+        domainMetadata[n] = DomainMetadata({
+            description: description,
+            avatar: avatar,
+            website: website,
+            email: email,
+            twitter: twitter,
+            discord: discord
+        });
+
+        emit MetadataUpdated(n, msg.sender);
+    }
+
     // Batch operations for efficiency
     function batchRegister(
         string[] calldata names,
         bool makeUniversal
-    ) external payable {
+    ) external payable nonReentrant whenNotPaused {
         uint256 currentChainId = block.chainid;
         ChainConfig memory chainConfig = supportedChains[currentChainId];
         require(chainConfig.isSupported, "CHAIN_NOT_SUPPORTED");
@@ -424,13 +654,143 @@ contract PushUniversalNameService is Ownable {
             DomainRecord storage rec = nameToRecord[n];
             require(rec.owner == address(0) || _isExpired(rec), "DOMAIN_TAKEN");
 
+            // Generate unique domain ID
+            _domainIdCounter.increment();
+            uint256 domainId = _domainIdCounter.current();
+
             uint64 newExpiry = uint64(block.timestamp + REGISTRATION_DURATION);
+            rec.id = domainId;
             rec.owner = msg.sender;
             rec.expiresAt = newExpiry;
+            rec.registeredAt = uint64(block.timestamp);
             rec.sourceChainId = currentChainId;
+            rec.currentChainId = currentChainId;
             rec.isUniversal = makeUniversal;
 
-            emit Registered(n, msg.sender, newExpiry, currentChainId, makeUniversal);
+            ownerToDomains[msg.sender].push(n);
+            idToDomain[domainId] = n;
+            
+            userDomainCount[msg.sender]++;
+            totalDomains++;
+            
+            if (makeUniversal) {
+                userUniversalDomainCount[msg.sender]++;
+                totalUniversalDomains++;
+            }
+
+            emit DomainRegistered(
+                domainId,
+                n, 
+                msg.sender, 
+                newExpiry, 
+                currentChainId, 
+                makeUniversal,
+                chainConfig.registrationPrice
+            );
         }
+
+        // Handle payment
+        uint256 treasuryAmount = (totalCost * 90) / 100;
+        pendingWithdrawals[treasuryAddress] += treasuryAmount;
+        
+        uint256 refund = msg.value - totalCost;
+        if (refund > 0) {
+            payable(msg.sender).transfer(refund);
+        }
+    }
+
+    // Internal transfer function
+    function _transferDomain(
+        string memory name,
+        address from,
+        address to
+    ) internal {
+        DomainRecord storage rec = nameToRecord[name];
+        
+        // Update owner
+        rec.owner = to;
+        
+        // Update owner mappings
+        _removeFromOwnerDomains(from, name);
+        ownerToDomains[to].push(name);
+        
+        // Update statistics
+        userDomainCount[from]--;
+        userDomainCount[to]++;
+        
+        if (rec.isUniversal) {
+            userUniversalDomainCount[from]--;
+            userUniversalDomainCount[to]++;
+        }
+    }
+
+    function _removeFromOwnerDomains(address owner, string memory name) internal {
+        string[] storage domains = ownerToDomains[owner];
+        for (uint256 i = 0; i < domains.length; i++) {
+            if (keccak256(bytes(domains[i])) == keccak256(bytes(name))) {
+                domains[i] = domains[domains.length - 1];
+                domains.pop();
+                break;
+            }
+        }
+    }
+
+    // Withdrawal function
+    function withdraw() external nonReentrant {
+        uint256 amount = pendingWithdrawals[msg.sender];
+        require(amount > 0, "NO_FUNDS");
+        
+        pendingWithdrawals[msg.sender] = 0;
+        payable(msg.sender).transfer(amount);
+    }
+
+    // View functions
+    function getDomainMetadata(string calldata name) external view returns (DomainMetadata memory) {
+        return domainMetadata[_toLower(name)];
+    }
+
+    function getMarketplaceListing(string calldata name) external view returns (MarketplaceListing memory) {
+        return domainListings[_toLower(name)];
+    }
+
+    function getUserDomains(address user) external view returns (string[] memory) {
+        return ownerToDomains[user];
+    }
+
+    function getDomainById(uint256 domainId) external view returns (string memory) {
+        return idToDomain[domainId];
+    }
+
+    function getTotalDomains() external view returns (uint256) {
+        return totalDomains;
+    }
+
+    function getTotalUniversalDomains() external view returns (uint256) {
+        return totalUniversalDomains;
+    }
+
+    // Admin functions
+    function setTreasuryAddress(address newTreasury) external onlyOwner {
+        require(newTreasury != address(0), "INVALID_ADDRESS");
+        address oldTreasury = treasuryAddress;
+        treasuryAddress = newTreasury;
+        emit TreasuryUpdated(oldTreasury, newTreasury);
+    }
+
+    function authorizeResolver(address resolver, bool authorized) external onlyOwner {
+        authorizedResolvers[resolver] = authorized;
+        emit ResolverAuthorized(resolver, authorized);
+    }
+
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
+    }
+
+    function emergencyWithdraw() external onlyOwner {
+        payable(owner()).transfer(address(this).balance);
     }
 }
