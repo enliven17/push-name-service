@@ -17,6 +17,7 @@ import { ConfirmationModal } from '@/components/ConfirmationModal';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount, useDisconnect as useWagmiDisconnect } from 'wagmi';
 import { supportedChains, getChainConfig } from '@/config/chains';
+import { universalSignerService } from '@/lib/universalSigner';
 
 import NetworkInfo from '@/components/NetworkInfo';
 
@@ -934,13 +935,14 @@ export default function Home() {
   const { disconnect: wagmiDisconnect } = useWagmiDisconnect();
   const walletConnected = isConnected || wagmiAccount.isConnected;
   const currentAddress = address || wagmiAccount.address;
-  const currentChainId = 42101; // Always Push Chain Donut
+  // Support both Push Chain and Ethereum Sepolia
+  const currentChainId = chainId || 42101; // Default to Push Chain
   const canvasRef = useRef<HTMLCanvasElement>(null);
-
-
   
-  // Always use Push Chain - no wrong network check needed
-  const isWrongNetwork = false;
+  // Check if user is on supported chain (Push Chain or Ethereum Sepolia)
+  const isSupportedChain = currentChainId === 42101 || currentChainId === 11155111;
+  const isWrongNetwork = walletConnected && !isSupportedChain;
+  const isSepoliaChain = currentChainId === 11155111;
 
   // Load user domains when wallet connects
   useEffect(() => {
@@ -1077,75 +1079,114 @@ export default function Home() {
         try {
           let transactionHash = '';
           
-          // Register on-chain (REQUIRED - no fallback)
-          if (!window.ethereum) {
-            throw new Error('No wallet connected. Please connect your wallet to register domains.');
+          // Check if user is on Ethereum Sepolia for gasless bridge
+          if (isSepoliaChain) {
+            console.log('🌉 Using gasless bridge from Ethereum Sepolia to Push Chain...');
+            
+            if (!window.ethereum) {
+              throw new Error('No wallet connected. Please connect your wallet to register domains.');
+            }
+            
+            const { ethers } = await import('ethers');
+            const provider = new ethers.BrowserProvider(window.ethereum);
+            const signer = await provider.getSigner();
+            const signerAddress = await signer.getAddress();
+            
+            console.log('👤 User address on Sepolia:', signerAddress);
+            console.log('💰 User pays on Sepolia, we pay on Push Chain');
+            
+            // Check user's Sepolia balance
+            const balanceCheck = await universalSignerService.checkSepoliaBalance(signerAddress);
+            if (!balanceCheck.hasEnough) {
+              throw new Error(`Insufficient ETH balance on Sepolia. You have ${balanceCheck.balance} ETH, need at least 0.001 ETH.`);
+            }
+            
+            // Create Universal Signer from user's Sepolia wallet
+            await universalSignerService.createUniversalSigner(signer);
+            
+            // Execute gasless bridge
+            const bridgeResult = await universalSignerService.gaslessBridge(
+              signer,
+              searchResult.name,
+              signerAddress
+            );
+            
+            transactionHash = bridgeResult.universalTxHash;
+            console.log('✅ Gasless bridge completed:', transactionHash);
+            
+          } else {
+            // Direct registration on Push Chain
+            console.log('🔗 Direct registration on Push Chain...');
+            
+            if (!window.ethereum) {
+              throw new Error('No wallet connected. Please connect your wallet to register domains.');
+            }
+            
+            console.log('🌐 All Push domains are universal by default');
+            console.log('💰 This will cost', searchResult.price, '+ gas fees');
+            
+            const { ethers } = await import('ethers');
+            const provider = new ethers.BrowserProvider(window.ethereum);
+            const signer = await provider.getSigner();
+            const signerAddress = await signer.getAddress();
+            
+            console.log('👤 Signer address:', signerAddress);
+            
+            const contractAddress = process.env.NEXT_PUBLIC_PUSH_CHAIN_NAME_SERVICE_ADDRESS;
+            if (!contractAddress) {
+              throw new Error('Contract address not configured');
+            }
+            
+            console.log('📍 Contract address:', contractAddress);
+            
+            const contract = new PushNameServiceContract(
+              contractAddress,
+              signer,
+              currentChainId,
+              { env: 'staging', account: signerAddress }
+            );
+            
+            try {
+              await contract.initialize();
+              console.log('✅ Contract initialized for registration');
+            } catch (initError) {
+              console.warn('⚠️ Contract initialization failed, continuing:', initError);
+            }
+            
+            // Get registration cost and send transaction
+            const registrationCost = await contract.getRegistrationCost();
+            console.log('💰 Registration cost:', ethers.formatEther(registrationCost), 'PC');
+            
+            const registrationCost = await contract.getRegistrationCost();
+            console.log('💰 Registration cost:', ethers.formatEther(registrationCost), 'PC');
+            
+            const tx = await contract.register(searchResult.name, true, registrationCost);
+            transactionHash = tx.hash;
+            console.log('📤 Transaction sent:', transactionHash);
+            
+            const receipt = await tx.wait();
+            console.log('✅ Registration confirmed:', receipt.hash);
           }
-          
-          console.log('🔗 Starting blockchain registration...');
-          console.log('🌐 All Push domains are universal by default');
-          console.log('💰 This will cost', searchResult.price, '+ gas fees');
-          
-          // Initialize Push Protocol contract
-          const { ethers } = await import('ethers');
-          const provider = new ethers.BrowserProvider(window.ethereum);
-          const signer = await provider.getSigner();
-          
-          // Get current address from signer
-          const signerAddress = await signer.getAddress();
-          console.log('👤 Signer address:', signerAddress);
-          
-          // Get contract address from environment
-          const contractAddress = process.env.NEXT_PUBLIC_PUSH_CHAIN_NAME_SERVICE_ADDRESS;
-          if (!contractAddress) {
-            throw new Error('Contract address not configured');
-          }
-          
-          console.log('📍 Contract address:', contractAddress);
-          
-          // Initialize contract
-          const contract = new PushNameServiceContract(
-            contractAddress,
-            signer,
-            currentChainId,
-            { env: 'staging', account: signerAddress }
-          );
-          
-          try {
-            await contract.initialize();
-            console.log('✅ Contract initialized for registration');
-          } catch (initError) {
-            console.warn('⚠️ Contract initialization failed, continuing:', initError);
-          }
-          
-          // Get registration cost from contract
-          const registrationCost = await contract.getRegistrationCost();
-          console.log('💰 Registration cost:', ethers.formatEther(registrationCost), 'PC');
-          
-          // Send registration transaction (all Push domains are universal)
-          const tx = await contract.register(searchResult.name, true, registrationCost);
-          transactionHash = tx.hash;
-          
-          console.log('📤 Transaction sent:', transactionHash);
-          
-          // Wait for confirmation
-          const receipt = await tx.wait();
-          console.log('✅ Transaction confirmed:', receipt.hash);
 
-          // Register in database after successful blockchain transaction
+          // Register in database after successful transaction
           try {
+            const { ethers } = await import('ethers');
+            const provider = new ethers.BrowserProvider(window.ethereum);
+            const signer = await provider.getSigner();
+            const signerAddress = await signer.getAddress();
+            
             const newDomain = await domainService.registerDomain(
               searchResult.name,
               signerAddress,
-              42101, // Push Chain ID
+              42101, // Always register on Push Chain
               transactionHash,
               true, // All Push domains are universal
-              parseFloat(ethers.formatEther(registrationCost)),
+              parseFloat(searchResult.price.split(' ')[0]),
               'PC'
             );
             console.log('💾 Domain saved to database:', newDomain);
           } catch (dbError) {
-            console.warn('⚠️ Database save failed, but blockchain registration succeeded:', dbError);
+            console.warn('⚠️ Database save failed, but registration succeeded:', dbError);
           }
 
           // Refresh user domains from database
@@ -1494,7 +1535,9 @@ export default function Home() {
                 <ScrambleText 
                   text={(() => {
                     const chainConfig = getChainConfig(currentChainId);
-                    return `Get your own domain on ${chainConfig?.name || 'Push Chain Donut'} with .push`;
+                    const chainName = chainConfig?.name || 'Push Chain Donut';
+                    const bridgeText = isSepoliaChain ? ' (Gasless Bridge Available)' : '';
+                    return `Get your own domain on ${chainName}${bridgeText} with .push`;
                   })()} 
                   delay={800}
                   duration={2500}
@@ -1509,8 +1552,9 @@ export default function Home() {
                 <NetworkWarningBanner>
                   <FaExclamationTriangle />
                   <div>
-                    <strong>Wrong Network!</strong><br />
-                    Please switch to a supported network using the network switcher below.
+                    <strong>Unsupported Network!</strong><br />
+                    Please switch to Push Chain Donut (42101) or Ethereum Sepolia (11155111). 
+                    Gasless bridge available from Sepolia!
                   </div>
                 </NetworkWarningBanner>
               )}

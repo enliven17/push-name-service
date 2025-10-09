@@ -113,7 +113,7 @@ contract PushUniversalNameService is Ownable, ReentrancyGuard, Pausable {
     bytes4 public constant MINT_DOMAIN_SELECTOR = bytes4(keccak256("mintCrossChainDomain(string,address,uint64,string,bytes32)"));
 
     uint256 public constant REGISTRATION_DURATION = 365 days;
-    uint256 public constant BASE_REGISTRATION_PRICE = 0.001 ether;
+    uint256 public constant BASE_REGISTRATION_PRICE = 1 ether; // 1 PC (1 ETH = 1000 PC ratio)
     uint256 public constant BASE_TRANSFER_FEE = 0.0001 ether;
     
     // Cross-chain message types

@@ -1,0 +1,21 @@
+{
+  "network": "ethereumSepolia",
+  "chainId": "11155111",
+  "deployer": "0x71197e7a1CA5A2cb2AD82432B924F69B1E3dB123",
+  "contracts": {
+    "EthBridge": {
+      "address": "0xad531CAE69A97aBa7301B10088cdD09249AD350E",
+      "deploymentHash": "0xe6926cde0e8c8cef051b38347e277c4f5e220cdcd2a11366e77f96d864f99aed",
+      "blockNumber": null
+    }
+  },
+  "configuration": {
+    "treasury": "0x71197e7a1CA5A2cb2AD82432B924F69B1E3dB123",
+    "universalSigner": "0x71197e7a1CA5A2cb2AD82432B924F69B1E3dB123",
+    "registrationPrice": "0.001 ETH"
+  },
+  "timestamp": "2025-10-09T19:14:28.935Z",
+  "gasUsed": {
+    "EthBridge": "3298324"
+  }
+}

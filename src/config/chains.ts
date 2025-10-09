@@ -38,7 +38,7 @@ export const chainConfigs = {
     name: 'Push Chain Donut',
     shortName: 'PC',
     color: '#E91E63',
-    registrationPrice: '0.001', // Low price for testnet
+    registrationPrice: '1.0', // 1 PC (1 ETH = 1000 PC ratio)
     transferFee: '0.0001',
     listingFee: '0.0001',
     currency: 'PC',
@@ -49,7 +49,7 @@ export const chainConfigs = {
     name: 'Ethereum Sepolia',
     shortName: 'ETH',
     color: '#627EEA',
-    registrationPrice: '0.002',
+    registrationPrice: '0.001', // 0.001 ETH (1 ETH = 1000 PC ratio)
     transferFee: '0.0002',
     listingFee: '0.0002',
     currency: 'ETH',
