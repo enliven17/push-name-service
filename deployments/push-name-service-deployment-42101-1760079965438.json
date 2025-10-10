@@ -1,0 +1,17 @@
+{
+  "network": "pushChainDonut",
+  "chainId": "42101",
+  "deployer": "0x71197e7a1CA5A2cb2AD82432B924F69B1E3dB123",
+  "contracts": {
+    "PushUniversalNameService": {
+      "address": "0x20Dc18392a7310962dad45FC7ba272F86F2CB197",
+      "deploymentHash": "0x315a1e073b71ae9d134c97bf7d0469138f6089dafb3ca326b38c5245efccaf4a",
+      "blockNumber": null
+    }
+  },
+  "pushCoreAddress": "0x00000000000000000000000000000000000000eA",
+  "timestamp": "2025-10-10T07:06:05.438Z",
+  "gasUsed": {
+    "PushUniversalNameService": "4855756"
+  }
+}

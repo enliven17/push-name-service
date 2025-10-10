@@ -34,15 +34,20 @@ interface NetworkInfoProps {
 export default function NetworkInfo({ className }: NetworkInfoProps) {
   const chainId = useChainId()
   const chainConfig = chainId ? getChainConfig(chainId) : null
+  const isSepoliaChain = chainId === 11155111
 
   if (!chainConfig) {
     return null
   }
 
+  const displayText = isSepoliaChain 
+    ? `Gasless Bridge via ${chainConfig.name}` 
+    : `Registering on ${chainConfig.name}`;
+
   return (
     <NetworkInfoContainer className={className}>
       <StatusDot color={chainConfig.color} />
-      <span>Registering on {chainConfig.name}</span>
+      <span>{displayText}</span>
     </NetworkInfoContainer>
   )
 }

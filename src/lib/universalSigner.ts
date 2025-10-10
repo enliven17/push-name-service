@@ -34,6 +34,8 @@ export class UniversalSignerService {
       this.universalSigner = await PushChain.utils.signer.toUniversal(ethersSigner);
       
       console.log('✅ Universal Signer created successfully');
+      console.log('📋 Universal Signer account:', this.universalSigner.account);
+      
       return this.universalSigner;
     } catch (error) {
       console.error('❌ Failed to create Universal Signer:', error);
@@ -251,7 +253,8 @@ export class UniversalSignerService {
         throw new Error('Push Chain Name Service address not configured');
       }
       
-      let tx: any;
+      let txData: any;
+      let value = '0';
       
       if (operation === 'registration') {
         // Registration operation
@@ -269,16 +272,12 @@ export class UniversalSignerService {
         const registrationCost = await contract.getRegistrationCost();
         console.log('💰 Registration cost:', ethers.formatEther(registrationCost), 'PC');
         
-        tx = await pushChainClient.tx.send({
-          to: nameServiceAddress,
-          data: contract.interface.encodeFunctionData('register', [
-            domainName,
-            true, // All domains are universal
-            registrationCost
-          ]),
-          value: registrationCost,
-          gasLimit: 500000
-        });
+        txData = contract.interface.encodeFunctionData('register', [
+          domainName,
+          true, // All domains are universal
+          registrationCost
+        ]);
+        value = registrationCost.toString();
         
       } else if (operation === 'transfer') {
         // Transfer operation
@@ -298,17 +297,13 @@ export class UniversalSignerService {
         const transferCost = await contract.getTransferFee(targetChainId);
         console.log('💰 Transfer cost:', ethers.formatEther(transferCost), 'PC');
         
-        tx = await pushChainClient.tx.send({
-          to: nameServiceAddress,
-          data: contract.interface.encodeFunctionData('crossChainTransfer', [
-            domainName,
-            toAddress,
-            targetChainId,
-            transferCost
-          ]),
-          value: transferCost,
-          gasLimit: 500000
-        });
+        txData = contract.interface.encodeFunctionData('crossChainTransfer', [
+          domainName,
+          toAddress,
+          targetChainId,
+          transferCost
+        ]);
+        value = transferCost.toString();
         
       } else if (operation === 'marketplace') {
         // Marketplace listing operation
@@ -331,26 +326,35 @@ export class UniversalSignerService {
         const listingFee = await contract.getListingFee();
         console.log('💰 Listing fee:', ethers.formatEther(listingFee), 'PC');
         
-        tx = await pushChainClient.tx.send({
-          to: nameServiceAddress,
-          data: contract.interface.encodeFunctionData('createListing', [
-            domainName,
-            pricePC,
-            true // All listings are cross-chain
-          ]),
-          value: listingFee,
-          gasLimit: 500000
-        });
+        txData = contract.interface.encodeFunctionData('createListing', [
+          domainName,
+          pricePC,
+          true // All listings are cross-chain
+        ]);
+        value = listingFee.toString();
       }
       
-      console.log('📤 Universal Transaction sent:', tx.hash);
+      // Send Universal Transaction using Push Chain client
+      console.log('📤 Sending Universal Transaction...');
+      const tx = await pushChainClient.universal.sendTransaction({
+        to: nameServiceAddress,
+        data: txData,
+        value: value,
+        gasLimit: 500000
+      });
       
-      // Wait for confirmation
-      const receipt = await tx.wait();
-      console.log('✅ Universal Transaction confirmed:', receipt.hash);
+      console.log('📤 Universal Transaction sent:', tx.hash || tx.transactionHash || 'pending');
+      
+      // Wait for confirmation if possible
+      let receipt = tx;
+      if (tx.wait) {
+        receipt = await tx.wait();
+        console.log('✅ Universal Transaction confirmed:', receipt.hash || receipt.transactionHash);
+      }
       
       // Step 3: Complete the operation on EthBridge
-      await this.completeEthBridgeOperation(operation, requestId, receipt.hash);
+      const txHash = receipt.hash || receipt.transactionHash || tx.hash || 'unknown';
+      await this.completeEthBridgeOperation(operation, requestId, txHash);
       
       return receipt;
       
@@ -479,11 +483,11 @@ export class UniversalSignerService {
    */
   async getUniversalSignerBalance(): Promise<string> {
     try {
-      if (!this.universalSigner) {
+      if (!this.universalSigner || !this.universalSigner.account) {
         return '0';
       }
       
-      const address = await this.universalSigner.getAddress();
+      const address = this.universalSigner.account.address;
       const balance = await this.pushChainProvider.getBalance(address);
       return ethers.formatEther(balance);
     } catch (error) {

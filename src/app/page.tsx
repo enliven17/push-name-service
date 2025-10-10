@@ -377,36 +377,7 @@ const PriceLabel = styled.div`
   color: rgba(255, 255, 255, 0.6);
 `;
 
-const UniversalInfo = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
-  padding: 16px;
-  background: rgba(236, 72, 153, 0.1);
-  border: 1px solid rgba(236, 72, 153, 0.2);
-  border-radius: 12px;
-  transition: all 0.3s ease;
-`;
-
-const UniversalInfoContent = styled.div`
-  color: white;
-  font-size: 0.95rem;
-  font-weight: 500;
-  flex: 1;
-  
-  .highlight {
-    color: #ec4899;
-    font-weight: 600;
-  }
-  
-  .description {
-    color: rgba(255, 255, 255, 0.7);
-    font-size: 0.85rem;
-    margin-top: 4px;
-    display: block;
-  }
-`;
+// Universal info components removed - all Push domains are universal by default
 
 const RegisterButton = styled.button`
   width: 100%;
@@ -933,7 +904,7 @@ export default function Home() {
   const wagmiAccount = useAccount();
   const chainId = useChainId();
   const { disconnect: wagmiDisconnect } = useWagmiDisconnect();
-  const walletConnected = isConnected || wagmiAccount.isConnected;
+  const walletConnected = (isConnected || wagmiAccount.isConnected) && (address || wagmiAccount.address);
   const currentAddress = address || wagmiAccount.address;
   // Support both Push Chain and Ethereum Sepolia
   const currentChainId = chainId || 42101; // Default to Push Chain
@@ -943,6 +914,18 @@ export default function Home() {
   const isSupportedChain = currentChainId === 42101 || currentChainId === 11155111;
   const isWrongNetwork = walletConnected && !isSupportedChain;
   const isSepoliaChain = currentChainId === 11155111;
+
+  // Debug wallet connection state
+  useEffect(() => {
+    console.log('🔍 Wallet State Debug:', {
+      isConnected,
+      'wagmiAccount.isConnected': wagmiAccount.isConnected,
+      address,
+      'wagmiAccount.address': wagmiAccount.address,
+      walletConnected,
+      currentAddress
+    });
+  }, [isConnected, wagmiAccount.isConnected, address, wagmiAccount.address, walletConnected, currentAddress]);
 
   // Load user domains when wallet connects
   useEffect(() => {
@@ -1010,39 +993,21 @@ export default function Home() {
       // Domain availability is determined solely by database
       const isAvailable = databaseAvailable;
       
-      // Get dynamic price from contract if available
-      let price = '0.001 PC';
-      try {
-        if (window.ethereum && walletConnected) {
-          const { ethers } = await import('ethers');
-          const provider = new ethers.BrowserProvider(window.ethereum);
-          const signer = await provider.getSigner();
-          const signerAddress = await signer.getAddress();
-          
-          const contractAddress = process.env.NEXT_PUBLIC_PUSH_CHAIN_NAME_SERVICE_ADDRESS;
-          if (contractAddress && signerAddress) {
-            const contract = new PushNameServiceContract(
-              contractAddress,
-              signer,
-              currentChainId,
-              { env: 'staging', account: signerAddress }
-            );
-            
-            const registrationCost = await contract.getRegistrationCost();
-            const chainConfig = getChainConfig(currentChainId);
-            price = `${ethers.formatEther(registrationCost)} ${chainConfig?.currency || 'PC'}`;
-            console.log('💰 Real contract price:', price);
-          }
-        } else {
-          // Fallback to config price
-          const chainConfig = getChainConfig(currentChainId);
-          price = chainConfig ? `${chainConfig.registrationPrice} ${chainConfig.currency}` : '0.001 PC';
-        }
-      } catch (error) {
-        console.warn('⚠️ Failed to get contract price, using fallback:', error);
-        const chainConfig = getChainConfig(currentChainId);
-        price = chainConfig ? `${chainConfig.registrationPrice} ${chainConfig.currency}` : '0.001 PC';
+      // Get dynamic price based on current chain
+      let price = '1 PC'; // Default fallback
+      
+      if (isSepoliaChain) {
+        // User is on Ethereum Sepolia - show ETH price with PC equivalent
+        price = '0.001 ETH (≈ 1 PC via Gasless Bridge)';
+      } else if (currentChainId === 42101) {
+        // User is on Push Chain - show PC price
+        price = '1.0 PC';
+      } else {
+        // User is on unsupported chain - show generic price
+        price = '1 PC (Switch to Push Chain or Ethereum Sepolia)';
       }
+      
+      console.log('💰 Final price:', price, 'for chain:', currentChainId);
       
       setSearchResult({
         name: trimmedQuery.toLowerCase(),
@@ -1157,15 +1122,12 @@ export default function Home() {
             const registrationCost = await contract.getRegistrationCost();
             console.log('💰 Registration cost:', ethers.formatEther(registrationCost), 'PC');
             
-            const registrationCost = await contract.getRegistrationCost();
-            console.log('💰 Registration cost:', ethers.formatEther(registrationCost), 'PC');
-            
             const tx = await contract.register(searchResult.name, true, registrationCost);
             transactionHash = tx.hash;
             console.log('📤 Transaction sent:', transactionHash);
             
             const receipt = await tx.wait();
-            console.log('✅ Registration confirmed:', receipt.hash);
+            console.log('✅ Registration confirmed:', receipt?.hash);
           }
 
           // Register in database after successful transaction
@@ -1175,14 +1137,13 @@ export default function Home() {
             const signer = await provider.getSigner();
             const signerAddress = await signer.getAddress();
             
+            // Register in database using the correct service
+            const priceValue = parseFloat(searchResult.price.split(' ')[0]) || 1.0;
             const newDomain = await domainService.registerDomain(
               searchResult.name,
               signerAddress,
-              42101, // Always register on Push Chain
-              transactionHash,
-              true, // All Push domains are universal
-              parseFloat(searchResult.price.split(' ')[0]),
-              'PC'
+              priceValue.toString(),
+              transactionHash
             );
             console.log('💾 Domain saved to database:', newDomain);
           } catch (dbError) {
@@ -1273,11 +1234,12 @@ export default function Home() {
     }
   };
 
-  // Load user domains
+  // Load user domains (universal - always from Push Chain database)
   const loadUserDomains = async () => {
     if (!currentAddress) return;
 
     try {
+      // Always load from Push Chain database regardless of current network
       const domains = await domainService.getDomainsByOwner(currentAddress);
       
       // Add .push extension for display
@@ -1287,28 +1249,23 @@ export default function Home() {
       }));
       
       setUserDomains(displayDomains);
+      console.log(`📋 Loaded ${displayDomains.length} universal domains from Push Chain`);
 
       // Load domain info for each domain in background
       displayDomains.forEach(domain => {
         loadDomainInfo(domain.name); // domain.name already includes .push
       });
 
-      // For domains without blockchain info, set default network info based on registration date
+      // Set universal domain info for all domains (all Push domains are universal)
       displayDomains.forEach(domain => {
         if (!domainInfoCache[domain.name]) {
-          // Domains registered before a certain date are likely on Arbitrum Sepolia
-          const registrationDate = new Date(domain.registration_date);
-          const cutoffDate = new Date('2024-01-01'); // Adjust this date as needed
-          
-          const defaultChainId = registrationDate < cutoffDate ? 421614 : currentChainId; // Arbitrum Sepolia for old domains
-          
           setDomainInfoCache(prev => ({
             ...prev,
             [domain.name]: {
               owner: domain.owner_address,
               expiresAt: new Date(domain.expiration_date).getTime(),
-              sourceChainId: defaultChainId,
-              isUniversal: false,
+              sourceChainId: 42101, // All domains are on Push Chain
+              isUniversal: true, // All Push domains are universal
               isExpired: new Date(domain.expiration_date) < new Date()
             }
           }));
@@ -1586,6 +1543,8 @@ export default function Home() {
                   <ConnectButton showBalance={false} accountStatus="address" />
                 </div>
               )}
+              
+
 
 
 
@@ -1628,29 +1587,18 @@ export default function Home() {
 
                       <NetworkInfo />
 
-                      <UniversalInfo>
-                        <FaGlobe size={20} color="#ec4899" />
-                        <UniversalInfoContent>
-                          <span className="highlight">Universal Domain</span>
-                          <span className="description">
-                            This domain will automatically be universal and usable across all Push Protocol supported networks (Ethereum, Polygon, BSC, Arbitrum, and more)!
-                          </span>
-                        </UniversalInfoContent>
-                      </UniversalInfo>
-
-                      <RegisterButton
-                        onClick={() => {
-                          if (!walletConnected) {
-                            // Trigger wallet connection
-                            (document.querySelector('[data-testid="rk-connect-button"]') as HTMLButtonElement)?.click();
-                          } else {
-                            registerDomain();
-                          }
-                        }}
-                        disabled={isRegistering}
-                      >
-                        {isRegistering ? 'Registering Universal Domain...' : (!walletConnected ? 'Connect to Register' : 'Register Universal Domain')}
-                      </RegisterButton>
+                      {!(isConnected || wagmiAccount.isConnected) || !(address || wagmiAccount.address) ? (
+                        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
+                          <ConnectButton showBalance={false} accountStatus="address" />
+                        </div>
+                      ) : (
+                        <RegisterButton
+                          onClick={registerDomain}
+                          disabled={isRegistering}
+                        >
+                          {isRegistering ? 'Registering Universal Domain...' : 'Register Universal Domain'}
+                        </RegisterButton>
+                      )}
                     </>
                   )}
                 </DomainResult>
@@ -1660,7 +1608,97 @@ export default function Home() {
 
               {walletConnected && (
                 <div style={{ display: 'flex', gap: 12, alignItems: 'stretch', marginTop: 16 }}>
+                  <ConnectButton.Custom>
+                    {({ chain, openChainModal, mounted }) => {
+                      const ready = mounted;
 
+                      return (
+                        <div
+                          {...(!ready && {
+                            'aria-hidden': true,
+                            'style': {
+                              opacity: 0,
+                              pointerEvents: 'none',
+                              userSelect: 'none',
+                            },
+                          })}
+                          style={{ flex: 1 }}
+                        >
+                          {ready && (
+                            <button
+                              onClick={openChainModal}
+                              type="button"
+                              style={{
+                                width: '100%',
+                                height: '56px',
+                                padding: '0 16px',
+                                border: chain?.unsupported 
+                                  ? '2px solid rgba(239, 68, 68, 0.3)' 
+                                  : '2px solid rgba(236, 72, 153, 0.3)',
+                                borderRadius: '20px',
+                                background: chain?.unsupported 
+                                  ? 'rgba(239, 68, 68, 0.1)' 
+                                  : 'rgba(236, 72, 153, 0.1)',
+                                color: chain?.unsupported ? '#ef4444' : '#ec4899',
+                                fontSize: '1.1rem',
+                                fontWeight: '600',
+                                cursor: 'pointer',
+                                transition: 'all 0.3s ease',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '12px'
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.background = chain?.unsupported 
+                                  ? 'rgba(239, 68, 68, 0.2)' 
+                                  : 'rgba(236, 72, 153, 0.2)';
+                                e.currentTarget.style.borderColor = chain?.unsupported 
+                                  ? 'rgba(239, 68, 68, 0.5)' 
+                                  : 'rgba(236, 72, 153, 0.5)';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.background = chain?.unsupported 
+                                  ? 'rgba(239, 68, 68, 0.1)' 
+                                  : 'rgba(236, 72, 153, 0.1)';
+                                e.currentTarget.style.borderColor = chain?.unsupported 
+                                  ? 'rgba(239, 68, 68, 0.3)' 
+                                  : 'rgba(236, 72, 153, 0.3)';
+                              }}
+                            >
+                              {chain?.hasIcon && (
+                                <div
+                                  style={{
+                                    background: chain.iconBackground,
+                                    width: 20,
+                                    height: 20,
+                                    borderRadius: 999,
+                                    overflow: 'hidden',
+                                  }}
+                                >
+                                  {chain.iconUrl && (
+                                    <img
+                                      alt={chain.name ?? 'Chain icon'}
+                                      src={chain.iconUrl}
+                                      style={{ width: 20, height: 20 }}
+                                    />
+                                  )}
+                                </div>
+                              )}
+                              {chain?.unsupported ? (
+                                <>⚠️ Wrong Network</>
+                              ) : (
+                                <>
+                                  {chain?.name || 'Unknown'}
+                                </>
+                              )}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    }}
+                  </ConnectButton.Custom>
+                  
                   <DisconnectButton 
                     onClick={async () => { 
                       try { 

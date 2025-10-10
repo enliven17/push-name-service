@@ -908,6 +908,21 @@ contract PushUniversalNameService is Ownable, ReentrancyGuard, Pausable {
     function getTotalUniversalDomains() external view returns (uint256) {
         return totalUniversalDomains;
     }
+    
+    /**
+     * @dev Get registration cost for current chain
+     */
+    function getRegistrationCost() external view returns (uint256) {
+        uint256 currentChainId = block.chainid;
+        ChainConfig memory chainConfig = supportedChains[currentChainId];
+        
+        // If current chain not configured, return base price
+        if (!chainConfig.isSupported) {
+            return BASE_REGISTRATION_PRICE;
+        }
+        
+        return chainConfig.registrationPrice;
+    }
 
     // Admin functions
     function setTreasuryAddress(address newTreasury) external onlyOwner {

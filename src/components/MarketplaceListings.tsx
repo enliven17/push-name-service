@@ -56,19 +56,19 @@ const ResultsHeader = styled.div`
   font-size: 0.9rem;
 `;
 
-const ListingsViewport = styled.div<{ itemCount: number }>`
-  height: ${props => Math.min(props.itemCount, 2) * 220 + 20}px; /* Dynamic height + padding for hover */
+const ListingsViewport = styled.div<{ $itemCount: number }>`
+  height: ${props => Math.min(props.$itemCount, 2) * 220 + 20}px; /* Dynamic height + padding for hover */
   overflow: hidden;
   position: relative;
   padding-top: 10px; /* Extra space for hover effect */
 `;
 
-const ListingsContainer = styled.div<{ currentIndex: number }>`
+const ListingsContainer = styled.div<{ $currentIndex: number }>`
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 16px;
   padding: 0;
-  transform: translateY(${props => -props.currentIndex * 220}px);
+  transform: translateY(${props => -props.$currentIndex * 220}px);
   transition: transform 0.3s ease;
 `;
 
@@ -381,7 +381,7 @@ export function MarketplaceListings({ onBuyDomain, onMakeOffer }: MarketplaceLis
     if (loading) {
         return (
             <MarketplaceContainer>
-                <ListingsContainer currentIndex={0}>
+                <ListingsContainer $currentIndex={0}>
                     <LoadingState>
                         <div>Loading marketplace listings...</div>
                     </LoadingState>
@@ -393,7 +393,7 @@ export function MarketplaceListings({ onBuyDomain, onMakeOffer }: MarketplaceLis
     if (listings.length === 0) {
         return (
             <MarketplaceContainer>
-                <ListingsContainer currentIndex={0}>
+                <ListingsContainer $currentIndex={0}>
                     <EmptyState>
                         <FaTag size={48} style={{ marginBottom: '16px', opacity: 0.5 }} />
                         <h3 style={{ marginBottom: '8px', fontSize: '1.2rem' }}>No Listings Available</h3>
@@ -462,7 +462,7 @@ export function MarketplaceListings({ onBuyDomain, onMakeOffer }: MarketplaceLis
             </ResultsHeader>
 
             {filteredListings.length === 0 && searchTerm ? (
-                <ListingsContainer currentIndex={0}>
+                <ListingsContainer $currentIndex={0}>
                     <EmptyState>
                         <FaSearch size={48} style={{ marginBottom: '16px', opacity: 0.5 }} />
                         <h3 style={{ marginBottom: '8px', fontSize: '1.2rem' }}>No Results Found</h3>
@@ -470,8 +470,8 @@ export function MarketplaceListings({ onBuyDomain, onMakeOffer }: MarketplaceLis
                     </EmptyState>
                 </ListingsContainer>
             ) : (
-                <ListingsViewport itemCount={filteredListings.length}>
-                    <ListingsContainer currentIndex={currentListingIndex}>
+                <ListingsViewport $itemCount={filteredListings.length}>
+                    <ListingsContainer $currentIndex={currentListingIndex}>
                         {filteredListings.map((listing) => (
                             <ListingCard key={listing.id}>
                                 <CardHeader>

@@ -22,9 +22,9 @@ const { connectors } = getDefaultWallets({
   projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || '226b43b703188d269fb70d02c107c34e',
 });
 
-// Create wagmi config with Push Protocol supported chains
+// Create wagmi config with only Push Chain Donut and Ethereum Sepolia
 const config = createConfig({
-  chains: supportedChains as readonly [Chain, ...Chain[]],
+  chains: [pushChainDonut, sepolia] as readonly [Chain, ...Chain[]],
   connectors,
   transports: {
     [pushChainDonut.id]: http(PUSH_CHAIN_RPC_URL, {
@@ -33,31 +33,6 @@ const config = createConfig({
       retryDelay: 1000,
     }),
     [sepolia.id]: http(ETHEREUM_SEPOLIA_RPC_URL, {
-      batch: true,
-      retryCount: 3,
-      retryDelay: 1000,
-    }),
-    [mainnet.id]: http(ETHEREUM_RPC_URL, {
-      batch: true,
-      retryCount: 3,
-      retryDelay: 1000,
-    }),
-    [polygon.id]: http(POLYGON_RPC_URL, {
-      batch: true,
-      retryCount: 3,
-      retryDelay: 1000,
-    }),
-    [bsc.id]: http(BSC_RPC_URL, {
-      batch: true,
-      retryCount: 3,
-      retryDelay: 1000,
-    }),
-    [arbitrum.id]: http(ARBITRUM_RPC_URL, {
-      batch: true,
-      retryCount: 3,
-      retryDelay: 1000,
-    }),
-    [optimism.id]: http(OPTIMISM_RPC_URL, {
       batch: true,
       retryCount: 3,
       retryDelay: 1000,
