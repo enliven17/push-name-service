@@ -16,6 +16,7 @@ import { useNotification } from '@/components/Notification';
 import { ConfirmationModal } from '@/components/ConfirmationModal';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useGaslessRegistration } from '@/hooks/useGaslessRegistration';
+import { GaslessProgress } from '@/components/GaslessProgress';
 import { useAccount, useDisconnect as useWagmiDisconnect } from 'wagmi';
 import { supportedChains, getChainConfig } from '@/config/chains';
 import { universalSignerService } from '@/lib/universalSigner';
@@ -900,7 +901,7 @@ export default function Home() {
   const [domainInfoCache, setDomainInfoCache] = useState<{[key: string]: any}>({});
 
   const { showSuccess, showError, showWarning, NotificationContainer } = useNotification();
-  const { registerDomainGasless, isLoading: isGaslessLoading } = useGaslessRegistration();
+  const { registerDomainGasless, isLoading: isGaslessLoading, currentStep } = useGaslessRegistration();
 
   const { isConnected, address, connect, disconnect, isLoading } = useWallet();
   const wagmiAccount = useAccount();
@@ -1582,6 +1583,14 @@ export default function Home() {
 
                       <NetworkInfo />
 
+                      {/* Show gasless progress when on Sepolia and registering */}
+                      {isSepoliaChain && (isRegistering || isGaslessLoading) && (
+                        <GaslessProgress 
+                          currentStep={currentStep}
+                          isVisible={true}
+                        />
+                      )}
+
                       {!(isConnected || wagmiAccount.isConnected) || !(address || wagmiAccount.address) ? (
                         <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
                           <ConnectButton showBalance={false} accountStatus="address" />
@@ -1592,8 +1601,12 @@ export default function Home() {
                           disabled={isRegistering || isGaslessLoading}
                         >
                           {isRegistering || isGaslessLoading ? 
-                            (isSepoliaChain ? 'Signing Message (Gasless)...' : 'Registering Universal Domain...') : 
-                            'Register Universal Domain'
+                            (isSepoliaChain ? 
+                              (currentStep === 'payment' ? 'Pay Domain Fee...' :
+                               currentStep === 'signature' ? 'Sign Message...' :
+                               'Processing...') : 
+                              'Registering Universal Domain...') : 
+                            (isSepoliaChain ? 'Register (Gasless)' : 'Register Universal Domain')
                           }
                         </RegisterButton>
                       )}

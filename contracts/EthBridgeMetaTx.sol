@@ -3,6 +3,7 @@ pragma solidity ^0.8.19;
 
 import "./EthBridge.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "@openzeppelin/contracts/utils/Strings.sol";
 
 /**
  * @title EthBridgeMetaTx
@@ -54,7 +55,15 @@ contract EthBridgeMetaTx is EthBridge {
         require(nonces[user] == nonce, "Invalid nonce");
         
         // Verify signature
-        bytes32 messageHash = getRegistrationMessageHash(user, domainName, nonce);
+        string memory message = string(abi.encodePacked(
+            "Register domain: ",
+            domainName,
+            ".push\nUser: ",
+            Strings.toHexString(uint160(user), 20),
+            "\nNonce: ",
+            Strings.toString(nonce)
+        ));
+        bytes32 messageHash = keccak256(bytes(message));
         bytes32 ethSignedMessageHash = messageHash.toEthSignedMessageHash();
         address recoveredSigner = ethSignedMessageHash.recover(signature);
         require(recoveredSigner == user, "Invalid signature");
@@ -287,14 +296,15 @@ contract EthBridgeMetaTx is EthBridge {
         string calldata domainName,
         uint256 nonce
     ) public pure returns (bytes32) {
-        return keccak256(abi.encodePacked(
+        string memory message = string(abi.encodePacked(
             "Register domain: ",
             domainName,
             ".push\nUser: ",
-            user,
+            Strings.toHexString(uint160(user), 20),
             "\nNonce: ",
-            nonce
+            Strings.toString(nonce)
         ));
+        return keccak256(bytes(message));
     }
     
     /**

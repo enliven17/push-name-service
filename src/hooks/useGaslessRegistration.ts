@@ -8,7 +8,7 @@ export interface GaslessRegistrationParams {
 
 export const useGaslessRegistration = () => {
   const [isLoading, setIsLoading] = useState(false);
-  const [isDepositing, setIsDepositing] = useState(false);
+  const [currentStep, setCurrentStep] = useState<'payment' | 'signature' | 'processing' | 'completed'>('payment');
 
   // Generate registration message for signing (matches contract format)
   const generateRegistrationMessage = (
@@ -16,7 +16,7 @@ export const useGaslessRegistration = () => {
     userAddress: string, 
     nonce: string
   ): string => {
-    return `Register domain: ${domainName}.push\nUser: ${userAddress}\nNonce: ${nonce}`;
+    return `Register domain: ${domainName}.push\nUser: ${userAddress.toLowerCase()}\nNonce: ${nonce}`;
   };
 
   // Generate signature for gasless registration
@@ -25,29 +25,15 @@ export const useGaslessRegistration = () => {
     domainName: string,
     userAddress: string
   ) => {
-    // Get user's current nonce from contract
-    const ethBridgeAddress = process.env.NEXT_PUBLIC_ETH_BRIDGE_ADDRESS;
-    if (!ethBridgeAddress) {
-      throw new Error('EthBridge contract address not configured');
-    }
-    
-    const provider = signer.provider;
-    if (!provider) {
-      throw new Error('Signer must have a provider');
-    }
-    
-    const ethBridgeABI = ['function getNonce(address user) external view returns (uint256)'];
-    const ethBridgeContract = new ethers.Contract(ethBridgeAddress, ethBridgeABI, provider);
-    
-    const nonce = await ethBridgeContract.getNonce(userAddress);
-    const message = generateRegistrationMessage(domainName, userAddress, nonce.toString());
+    // Simple message for authorization
+    const nonce = Date.now().toString();
+    const message = generateRegistrationMessage(domainName, userAddress, nonce);
 
     console.log('📝 Signing registration message:', message);
-    console.log('🔢 Using nonce:', nonce.toString());
     
     const signature = await signer.signMessage(message);
     
-    return { message, signature, nonce: nonce.toString() };
+    return { message, signature, nonce };
   };
 
   // Execute gasless domain registration
@@ -62,8 +48,9 @@ export const useGaslessRegistration = () => {
 
       console.log('💰 User will pay domain fee (0.001 ETH) but no gas fee!');
       
-      // First, user sends domain fee to relayer
-      console.log('💸 Sending domain fee to relayer...');
+      // Step 1: User sends domain fee to relayer
+      setCurrentStep('payment');
+      console.log('💸 Step 1: Sending domain fee to relayer...');
       const domainFee = ethers.parseEther('0.001');
       
       // Send ETH to relayer address (this is the only transaction user pays gas for)
@@ -78,8 +65,9 @@ export const useGaslessRegistration = () => {
       await feeTransfer.wait();
       console.log('✅ Domain fee confirmed');
       
-      // Now generate signature for gasless registration
-      console.log('🔐 Generating gasless registration signature...');
+      // Step 2: Generate signature for gasless registration
+      setCurrentStep('signature');
+      console.log('🔐 Step 2: Generating gasless registration signature...');
       const { message, signature, nonce } = await generateRegistrationSignature(
         signer,
         domainName,
@@ -87,6 +75,9 @@ export const useGaslessRegistration = () => {
       );
 
       console.log('✅ Signature generated, sending to gasless API...');
+      
+      // Step 3: Processing
+      setCurrentStep('processing');
 
       // Call gasless registration API
       const response = await fetch('/api/gasless-register', {
@@ -112,6 +103,10 @@ export const useGaslessRegistration = () => {
       }
 
       console.log('🎉 Gasless registration successful:', result);
+      
+      // Step 4: Completed
+      setCurrentStep('completed');
+      
       return result;
 
     } catch (error: any) {
@@ -141,6 +136,7 @@ export const useGaslessRegistration = () => {
 
   return {
     isLoading,
+    currentStep,
     registerDomainGasless,
     checkRegistrationStatus,
     generateRegistrationSignature
