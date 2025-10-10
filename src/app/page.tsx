@@ -15,6 +15,7 @@ import { marketplaceService } from '@/lib/marketplace';
 import { useNotification } from '@/components/Notification';
 import { ConfirmationModal } from '@/components/ConfirmationModal';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { useGaslessRegistration } from '@/hooks/useGaslessRegistration';
 import { useAccount, useDisconnect as useWagmiDisconnect } from 'wagmi';
 import { supportedChains, getChainConfig } from '@/config/chains';
 import { universalSignerService } from '@/lib/universalSigner';
@@ -899,6 +900,7 @@ export default function Home() {
   const [domainInfoCache, setDomainInfoCache] = useState<{[key: string]: any}>({});
 
   const { showSuccess, showError, showWarning, NotificationContainer } = useNotification();
+  const { registerDomainGasless, isLoading: isGaslessLoading } = useGaslessRegistration();
 
   const { isConnected, address, connect, disconnect, isLoading } = useWallet();
   const wagmiAccount = useAccount();
@@ -998,7 +1000,7 @@ export default function Home() {
       
       if (isSepoliaChain) {
         // User is on Ethereum Sepolia - show ETH price with PC equivalent
-        price = '0.001 ETH (≈ 1 PC via Gasless Bridge)';
+        price = '0.001 ETH (≈ 1 PC)';
       } else if (currentChainId === 42101) {
         // User is on Push Chain - show PC price
         price = '1.0 PC';
@@ -1044,9 +1046,10 @@ export default function Home() {
         try {
           let transactionHash = '';
           
-          // Check if user is on Ethereum Sepolia for gasless bridge
+          // Check if user is on Ethereum Sepolia for gasless registration
           if (isSepoliaChain) {
-            console.log('🌉 Using gasless bridge from Ethereum Sepolia to Push Chain...');
+            console.log('🌉 Using gasless registration from Ethereum Sepolia...');
+            console.log('💡 User only signs message, no gas fee!');
             
             if (!window.ethereum) {
               throw new Error('No wallet connected. Please connect your wallet to register domains.');
@@ -1058,26 +1061,18 @@ export default function Home() {
             const signerAddress = await signer.getAddress();
             
             console.log('👤 User address on Sepolia:', signerAddress);
-            console.log('💰 User pays on Sepolia, we pay on Push Chain');
+            console.log('🔐 User will only sign message (gasless)');
             
-            // Check user's Sepolia balance
-            const balanceCheck = await universalSignerService.checkSepoliaBalance(signerAddress);
-            if (!balanceCheck.hasEnough) {
-              throw new Error(`Insufficient ETH balance on Sepolia. You have ${balanceCheck.balance} ETH, need at least 0.001 ETH.`);
-            }
+            // Execute gasless registration (user only signs, no gas fee)
+            const gaslessResult = await registerDomainGasless(signer, {
+              domainName: searchResult.name,
+              userAddress: signerAddress
+            });
             
-            // Create Universal Signer from user's Sepolia wallet
-            await universalSignerService.createUniversalSigner(signer);
-            
-            // Execute gasless bridge
-            const bridgeResult = await universalSignerService.gaslessBridge(
-              signer,
-              searchResult.name,
-              signerAddress
-            );
-            
-            transactionHash = bridgeResult.universalTxHash;
-            console.log('✅ Gasless bridge completed:', transactionHash);
+            transactionHash = gaslessResult.universalTxHash;
+            console.log('✅ Gasless registration completed:', transactionHash);
+            console.log('📋 Relayer TX:', gaslessResult.txHash);
+            console.log('📋 Request ID:', gaslessResult.requestId);
             
           } else {
             // Direct registration on Push Chain
@@ -1594,9 +1589,12 @@ export default function Home() {
                       ) : (
                         <RegisterButton
                           onClick={registerDomain}
-                          disabled={isRegistering}
+                          disabled={isRegistering || isGaslessLoading}
                         >
-                          {isRegistering ? 'Registering Universal Domain...' : 'Register Universal Domain'}
+                          {isRegistering || isGaslessLoading ? 
+                            (isSepoliaChain ? 'Signing Message (Gasless)...' : 'Registering Universal Domain...') : 
+                            'Register Universal Domain'
+                          }
                         </RegisterButton>
                       )}
                     </>
