@@ -312,7 +312,7 @@ export default function CrossChainTransferDebug({ isOpen, onClose, domainName, c
         <Section>
           <Label>Domain Name</Label>
           <div style={{ color: 'white', padding: '12px 16px', background: 'rgba(255, 255, 255, 0.1)', borderRadius: '12px', opacity: 0.7 }}>
-            {domainName}.zeta
+            {domainName}.push
           </div>
         </Section>
 

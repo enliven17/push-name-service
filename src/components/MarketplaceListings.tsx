@@ -308,7 +308,7 @@ export function MarketplaceListings({ onBuyDomain, onMakeOffer }: MarketplaceLis
 
         try {
             const contract = getOmnichainContract(window.ethereum, currentChainId);
-            const info = await contract.getDomainInfo(domainName.replace('.zeta', ''));
+            const info = await contract.getDomainInfo(domainName.replace('.push', ''));
             
             // Cache the result
             setDomainInfoCache(prev => ({
@@ -333,7 +333,7 @@ export function MarketplaceListings({ onBuyDomain, onMakeOffer }: MarketplaceLis
             // Load domain info for each listing in background
             data.forEach(listing => {
                 if (listing.domain?.name) {
-                    loadDomainInfo(`${listing.domain.name}.zeta`);
+                    loadDomainInfo(`${listing.domain.name}.push`);
                 }
             });
         } catch (error) {
@@ -478,12 +478,12 @@ export function MarketplaceListings({ onBuyDomain, onMakeOffer }: MarketplaceLis
                                     <DomainNameWithBadge>
                                         <DomainName>
                                             <FaEthereum size={18} />
-                                            {listing.domain?.name ? `${listing.domain.name}.zeta` : 'Unknown Domain'}
+                                            {listing.domain?.name ? `${listing.domain.name}.push` : 'Unknown Domain'}
                                         </DomainName>
                                         {listing.domain?.name && (
                                           <BadgeContainer>
                                             {(() => {
-                                              const domainInfo = domainInfoCache[`${listing.domain.name}.zeta`];
+                                              const domainInfo = domainInfoCache[`${listing.domain.name}.push`];
                                               if (domainInfo?.isOmnichain) {
                                                 return (
                                                   <OmnichainBadge>

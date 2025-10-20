@@ -180,7 +180,7 @@ export class PushNameServiceContract {
       
       // Listen for registration event and send Push notification
       this.contract.once('DomainRegistered', async (domainId, registeredName, owner, expiresAt, chainId, isUniversal, price) => {
-        if (registeredName.toLowerCase() === name.toLowerCase()) {
+        if (String(registeredName).toLowerCase() === name.toLowerCase()) {
           console.log('🎉 Domain registration event received:', { domainId, registeredName, owner });
           
           try {

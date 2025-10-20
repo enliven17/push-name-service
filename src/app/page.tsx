@@ -1807,14 +1807,15 @@ export default function Home() {
                                 </ActionButton>
                                 <ActionButton 
                                   onClick={() => setListDomain(domain)}
-                                  disabled={isListed || isExpired}
+                                  disabled={isListed || isExpired || currentChainId !== 42101}
                                   style={{
-                                    opacity: isListed || isExpired ? 0.6 : 1,
-                                    cursor: isListed || isExpired ? 'not-allowed' : 'pointer'
+                                    opacity: isListed || isExpired || currentChainId !== 42101 ? 0.6 : 1,
+                                    cursor: isListed || isExpired || currentChainId !== 42101 ? 'not-allowed' : 'pointer'
                                   }}
+                                  title={currentChainId !== 42101 ? 'Switch to Push Chain to list domains' : ''}
                                 >
                                   <FaTag />
-                                  {isListed ? 'Listed' : 'List'}
+                                  {isListed ? 'Listed' : (currentChainId !== 42101 ? 'List (Push Chain)' : 'List')}
                                 </ActionButton>
                               </DomainActions>
                             </DomainCard>

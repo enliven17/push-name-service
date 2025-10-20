@@ -370,7 +370,7 @@ export default function CrossChainTransfer({ isOpen, onClose, domainName, curren
         <Section>
           <Label>Domain Name</Label>
           <Input 
-            value={`${domainName}.zeta`} 
+            value={`${domainName}.push`} 
             disabled 
             style={{ opacity: 0.7 }}
           />

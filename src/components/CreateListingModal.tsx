@@ -150,24 +150,49 @@ export default function CreateListingModal({ domain, sellerAddress, onClose, onL
     }
     try {
       setLoading(true);
-      const name = domain.name.replace('.ctc', '').replace('.zeta', '');
+      const name = domain.name.replace('.push', '').replace('.ctc', '');
+      console.log('🔍 Listing domain:', domain.name, '→', name);
       const priceWei = ethers.parseEther(price);
       
-      // Verify domain ownership before listing
+      // Check if user is on Push Chain
       const provider = new ethers.BrowserProvider(window.ethereum);
+      const network = await provider.getNetwork();
+      console.log('🌐 Current network:', network.chainId);
+      
+      if (Number(network.chainId) !== 42101) {
+        setError('Please switch to Push Chain Donut Testnet (Chain ID: 42101) to list domains');
+        return;
+      }
+      
+      // Verify domain ownership before listing
       const signer = await provider.getSigner();
       const userAddress = await signer.getAddress();
+      console.log('👤 User address:', userAddress);
       
       // Check if user owns the domain
+      const contractAddress = process.env.NEXT_PUBLIC_PUSH_CHAIN_NAME_SERVICE_ADDRESS;
+      if (!contractAddress) {
+        setError('Push Chain Name Service contract not configured');
+        return;
+      }
+      
       const nsContract = new ethers.Contract(
-        process.env.NEXT_PUBLIC_ZETA_CONTRACT_ADDRESS || process.env.NEXT_PUBLIC_CREDIT_CONTRACT_ADDRESS || '',
-        ['function ownerOf(string name) view returns (address)', 'function expiresAt(string name) view returns (uint64)'],
+        contractAddress,
+        [
+          'function ownerOf(string calldata name) external view returns (address)',
+          'function getDomainInfo(string calldata name) external view returns (address owner, uint64 expiration, uint256 sourceChainId, bool isUniversal, bool isExpired, string memory ipfsHash)'
+        ],
         provider
       );
       
+      console.log('📋 Checking domain ownership for:', name);
       const domainOwner = await nsContract.ownerOf(name);
-      const expiresAt = await nsContract.expiresAt(name);
-      const isExpired = Number(expiresAt) * 1000 < Date.now();
+      console.log('👤 Domain owner:', domainOwner);
+      console.log('🔍 Zero address:', ethers.ZeroAddress);
+      
+      const domainInfo = await nsContract.getDomainInfo(name);
+      console.log('📋 Domain info:', domainInfo);
+      const isExpired = domainInfo.isExpired; // Contract already calculates this
       
       if (domainOwner === ethers.ZeroAddress) {
         setError('Domain is not registered');
@@ -184,10 +209,27 @@ export default function CreateListingModal({ domain, sellerAddress, onClose, onL
         return;
       }
       
-      // All Push domains support cross-chain trading
-
-      const mkt = getMarketplaceContract(window.ethereum);
-      const txHash = await mkt.list(name, priceWei, allowCrossChain);
+      // List domain on Push Chain marketplace
+      const marketplaceContract = new ethers.Contract(
+        contractAddress, // Same contract handles marketplace
+        [
+          'function listDomain(string calldata name, uint256 price) external'
+        ],
+        signer
+      );
+      
+      console.log('📋 Listing domain for price:', ethers.formatEther(priceWei), 'PC');
+      
+      // List domain (no fee required)
+      const listTx = await marketplaceContract.listDomain(name, priceWei, {
+        gasLimit: 300000
+      });
+      
+      console.log('📤 Listing transaction sent:', listTx.hash);
+      const listReceipt = await listTx.wait();
+      console.log('✅ Domain listed successfully:', listReceipt.hash);
+      
+      const txHash = listReceipt.hash;
 
       await marketplaceCreate(domain.id, sellerAddress, price, txHash, allowCrossChain);
       onListed();
@@ -212,7 +254,21 @@ export default function CreateListingModal({ domain, sellerAddress, onClose, onL
     const { marketplaceService } = await import('@/lib/marketplace');
     
     try {
-      const result = await marketplaceService.createListing(domainId, seller, priceEth, 'fixed_price', undefined, undefined, tx);
+      // Create listing without listing_type for now
+      const { supabase } = await import('@/lib/supabase');
+      const result = await supabase
+        .from('push_marketplace_listings')
+        .insert({
+          domain_id: domainId,
+          seller_address: seller,
+          price: priceEth,
+          currency: 'PC',
+          chain_id: 42101, // Push Chain
+          status: 'active',
+          listing_transaction_hash: tx
+        })
+        .select()
+        .single();
       console.log('✅ Listing created successfully:', result);
       return result;
     } catch (error) {
