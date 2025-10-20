@@ -180,23 +180,86 @@ export default function CrossChainTransfer({ isOpen, onClose, domainName, curren
         throw new Error('Cannot transfer to your own address')
       }
 
-      console.log('📤 Initiating domain transfer with Universal Signer...')
-      console.log('- Domain:', domainName)
+      const provider = new ethers.BrowserProvider(window.ethereum)
+      const signer = await provider.getSigner()
+      
+      // Check current network
+      const network = await provider.getNetwork()
+      const currentChainId = Number(network.chainId)
+      
+      const cleanDomainName = domainName.replace('.push', '')
+      
+      console.log('📤 Initiating domain transfer...')
+      console.log('- Domain:', cleanDomainName)
       console.log('- From:', address)
       console.log('- To:', recipientAddress)
-
-      // Import universal signer
-      const { universalSigner } = await import('@/lib/universalSigner')
+      console.log('- Network:', currentChainId)
       
-      // Execute transfer using universal signer
-      const result = await universalSigner.transferDomain(
-        domainName.replace('.push', ''),
-        recipientAddress
-      )
+      let txHash: string
       
-      console.log('✅ Domain transfer completed:', result.txHash)
+      if (currentChainId === 42101) {
+        // On Push Chain - direct transfer
+        console.log('📤 Direct transfer on Push Chain...')
+        
+        const contractAddress = process.env.NEXT_PUBLIC_PUSH_CHAIN_NAME_SERVICE_ADDRESS
+        if (!contractAddress) {
+          throw new Error('Push Chain contract address not configured')
+        }
+        
+        const contract = new ethers.Contract(
+          contractAddress,
+          ['function transfer(string memory name, address to) external'],
+          signer
+        )
+        
+        const tx = await contract.transfer(cleanDomainName, recipientAddress)
+        const receipt = await tx.wait()
+        txHash = receipt.hash
+        
+        console.log('✅ Direct transfer completed:', txHash)
+        
+      } else if (currentChainId === 11155111) {
+        // On Ethereum Sepolia - use EthBridge
+        console.log('📤 Transfer via EthBridge on Ethereum Sepolia...')
+        
+        const ethBridgeAddress = process.env.NEXT_PUBLIC_ETH_BRIDGE_ADDRESS
+        if (!ethBridgeAddress) {
+          throw new Error('EthBridge address not configured')
+        }
+        
+        const ethBridgeABI = [
+          'function requestDomainTransfer(string calldata domainName, address toAddress, uint256 targetChainId) external payable',
+          'function transferFeeETH() external view returns (uint256)'
+        ]
+        
+        const ethBridge = new ethers.Contract(ethBridgeAddress, ethBridgeABI, signer)
+        
+        // Get transfer fee
+        const transferFee = await ethBridge.transferFeeETH()
+        console.log('💰 Transfer fee:', ethers.formatEther(transferFee), 'ETH')
+        
+        // Request transfer via EthBridge
+        const tx = await ethBridge.requestDomainTransfer(
+          cleanDomainName,
+          recipientAddress,
+          42101, // Push Chain target
+          { value: transferFee }
+        )
+        
+        const receipt = await tx.wait()
+        txHash = receipt.hash
+        
+        console.log('✅ EthBridge transfer request confirmed:', txHash)
+        
+      } else {
+        throw new Error('Please switch to Push Chain Donut (42101) or Ethereum Sepolia (11155111) to transfer domains')
+      }
       
-      setSuccess(`🎉 Domain transfer completed!\n\nTransaction: ${result.txHash}`)
+      const successMessage = currentChainId === 42101 
+        ? `🎉 Domain transfer completed!\n\nTransaction: ${txHash}`
+        : `🎉 Transfer request submitted!\n\nYour domain will be transferred on Push Chain within 2-5 minutes.\n\nTransaction: ${txHash}`
+      
+      setSuccess(successMessage)
       
       // Close modal after success
       setTimeout(() => {
@@ -267,23 +330,23 @@ export default function CrossChainTransfer({ isOpen, onClose, domainName, curren
             marginBottom: '16px'
           }}>
             <div style={{ fontSize: '0.9rem', fontWeight: '600', marginBottom: '12px', color: '#22c55e' }}>
-              📤 Universal Transfer Details
+              📤 Transfer Details
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', fontSize: '0.9rem' }}>
               <span style={{ color: 'rgba(255, 255, 255, 0.7)' }}>🏠 Network:</span>
-              <span style={{ color: '#00d2ff', fontWeight: '600' }}>Push Chain Donut</span>
+              <span style={{ color: '#00d2ff', fontWeight: '600' }}>Auto-detected</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', fontSize: '0.9rem' }}>
-              <span style={{ color: 'rgba(255, 255, 255, 0.7)' }}>⚡ Signing Method:</span>
-              <span style={{ color: '#00d2ff', fontWeight: '600' }}>Universal Signer</span>
+              <span style={{ color: 'rgba(255, 255, 255, 0.7)' }}>⚡ Method:</span>
+              <span style={{ color: '#00d2ff', fontWeight: '600' }}>Universal Bridge</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', fontSize: '0.9rem' }}>
-              <span style={{ color: 'rgba(255, 255, 255, 0.7)' }}>💰 Transfer Fee:</span>
-              <span style={{ color: '#00d2ff', fontWeight: '600' }}>0.0001 PC</span>
+              <span style={{ color: 'rgba(255, 255, 255, 0.7)' }}>💰 Fee:</span>
+              <span style={{ color: '#00d2ff', fontWeight: '600' }}>0.0002 ETH / 0.0001 PC</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.9rem' }}>
-              <span style={{ color: 'rgba(255, 255, 255, 0.7)' }}>⏱️ Estimated Time:</span>
-              <span style={{ color: '#00d2ff', fontWeight: '600' }}>~30 seconds</span>
+              <span style={{ color: 'rgba(255, 255, 255, 0.7)' }}>⏱️ Time:</span>
+              <span style={{ color: '#00d2ff', fontWeight: '600' }}>30s (Push) / 2-5min (Sepolia)</span>
             </div>
           </div>
         </Section>

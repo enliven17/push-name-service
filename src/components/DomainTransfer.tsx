@@ -347,8 +347,6 @@ export const DomainTransfer: React.FC<DomainTransferProps> = ({
       return;
     }
 
-    // All Push domains are universal - no check needed
-
     setIsTransferring(true);
     setErrorMessage('');
 
@@ -362,50 +360,79 @@ export const DomainTransfer: React.FC<DomainTransferProps> = ({
       const signer = await provider.getSigner();
       const signerAddress = await signer.getAddress();
       
-      const contractAddress = process.env.NEXT_PUBLIC_PUSH_CHAIN_NAME_SERVICE_ADDRESS;
-      if (!contractAddress) {
-        throw new Error('Push Chain contract address not configured');
-      }
-      
-      const contract = new PushNameServiceContract(
-        contractAddress,
-        signer,
-        pushChainDonut.id,
-        { env: 'staging', account: signerAddress }
-      );
-      
-      try {
-        await contract.initialize();
-        console.log('✅ Contract initialized for transfer');
-      } catch (initError) {
-        console.warn('⚠️ Contract initialization failed for transfer, continuing:', initError);
-      }
+      // Check current network
+      const network = await provider.getNetwork();
+      const currentChainId = Number(network.chainId);
       
       const domainName = domain.name.replace('.push', '');
       
-      console.log('📤 Initiating domain transfer with Universal Signer...');
-      console.log('- Domain:', domainName);
-      console.log('- From:', signerAddress);
-      console.log('- To:', toAddress);
-      console.log('- Network: Push Chain Donut');
-      
-      // Execute simple transfer on Push Chain
-      const tx = await contract.transferDomain(domainName, toAddress);
-      
-      console.log('📤 Transaction sent:', tx.hash);
-      
-      // Wait for confirmation
-      const receipt = await tx.wait();
-      console.log('✅ Domain transfer completed:', receipt.hash);
-
-      // Update database
-      if (!address) throw new Error('Sender address is missing');
-      
-      try {
-        await domainService.directDomainTransfer(domain.id, address, toAddress, tx.hash);
-        console.log('💾 Database updated successfully');
-      } catch (dbError) {
-        console.warn('⚠️ Database update failed, but blockchain transfer succeeded:', dbError);
+      if (currentChainId === 42101) {
+        // On Push Chain - direct transfer
+        console.log('📤 Direct transfer on Push Chain...');
+        
+        const contractAddress = process.env.NEXT_PUBLIC_PUSH_CHAIN_NAME_SERVICE_ADDRESS;
+        if (!contractAddress) {
+          throw new Error('Push Chain contract address not configured');
+        }
+        
+        const contract = new PushNameServiceContract(
+          contractAddress,
+          signer,
+          pushChainDonut.id,
+          { env: 'staging', account: signerAddress }
+        );
+        
+        const tx = await contract.transfer(domainName, toAddress);
+        const receipt = await tx.wait();
+        
+        if (!receipt) {
+          throw new Error('Transaction receipt not available');
+        }
+        
+        console.log('✅ Direct transfer completed:', receipt.hash);
+        
+        // Update database
+        await domainService.directDomainTransfer(domain.id, address!, toAddress, receipt.hash);
+        
+        setSuccessMessage(`🎉 Domain transfer completed!\n\nTransaction: ${receipt.hash}`);
+        
+      } else if (currentChainId === 11155111) {
+        // On Ethereum Sepolia - use EthBridge
+        console.log('📤 Transfer via EthBridge on Ethereum Sepolia...');
+        
+        const ethBridgeAddress = process.env.NEXT_PUBLIC_ETH_BRIDGE_ADDRESS;
+        if (!ethBridgeAddress) {
+          throw new Error('EthBridge address not configured');
+        }
+        
+        const ethBridgeABI = [
+          'function requestDomainTransfer(string calldata domainName, address toAddress, uint256 targetChainId) external payable',
+          'function transferFeeETH() public view returns (uint256)'
+        ];
+        
+        const ethBridge = new ethers.Contract(ethBridgeAddress, ethBridgeABI, signer);
+        
+        // Get transfer fee
+        const transferFee = await ethBridge.transferFeeETH();
+        console.log('💰 Transfer fee:', ethers.formatEther(transferFee), 'ETH');
+        
+        // Request transfer via EthBridge
+        const tx = await ethBridge.requestDomainTransfer(
+          domainName,
+          toAddress,
+          42101, // Push Chain target
+          { value: transferFee }
+        );
+        
+        console.log('📤 EthBridge transfer request sent:', tx.hash);
+        
+        const receipt = await tx.wait();
+        console.log('✅ EthBridge transfer request confirmed:', receipt.hash);
+        
+        setSuccessMessage(`🎉 Transfer request submitted!\n\nYour domain will be transferred on Push Chain within 2-5 minutes.\n\nTransaction: ${receipt.hash}`);
+        
+      } else {
+        throw new Error('Please switch to Push Chain Donut (42101) or Ethereum Sepolia (11155111) to transfer domains');
       }
 
       // Update marketplace listing ownership if domain is listed
@@ -422,10 +449,6 @@ export const DomainTransfer: React.FC<DomainTransferProps> = ({
       } catch (error) {
         console.error('⚠️ Failed to update marketplace listing:', error);
       }
-
-      const successMsg = `🎉 Domain transfer completed!\n\nThe domain has been successfully transferred to ${formatAddress(toAddress)} on Push Chain.\n\nTransaction: ${tx.hash}`;
-        
-      setSuccessMessage(successMsg);
       
       // Close modal after success
       setTimeout(() => {
@@ -511,27 +534,27 @@ export const DomainTransfer: React.FC<DomainTransferProps> = ({
                 </TransferInfo>
               )}
 
-              {/* Transfer Info - Universal Signer */}
+              {/* Transfer Info - Network Dependent */}
               {domainInfo && (
                 <TransferInfo>
                   <div style={{ fontSize: '0.9rem', fontWeight: '600', marginBottom: '12px', color: '#22c55e' }}>
-                    📤 Universal Transfer Details
+                    📤 Transfer Details
                   </div>
                   <InfoRow>
-                    <InfoLabel>🏠 Network:</InfoLabel>
-                    <InfoValue>Push Chain Donut</InfoValue>
+                    <InfoLabel>🏠 Current Network:</InfoLabel>
+                    <InfoValue>Auto-detected</InfoValue>
                   </InfoRow>
                   <InfoRow>
-                    <InfoLabel>⚡ Signing Method:</InfoLabel>
-                    <InfoValue>Universal Signer</InfoValue>
+                    <InfoLabel>⚡ Method:</InfoLabel>
+                    <InfoValue>Universal Bridge</InfoValue>
                   </InfoRow>
                   <InfoRow>
-                    <InfoLabel>💰 Transfer Fee:</InfoLabel>
-                    <InfoValue>0.0001 PC</InfoValue>
+                    <InfoLabel>💰 Fee:</InfoLabel>
+                    <InfoValue>0.0002 ETH (Sepolia) / 0.0001 PC (Push Chain)</InfoValue>
                   </InfoRow>
                   <InfoRow>
-                    <InfoLabel>⏱️ Estimated Time:</InfoLabel>
-                    <InfoValue>~30 seconds</InfoValue>
+                    <InfoLabel>⏱️ Time:</InfoLabel>
+                    <InfoValue>~30 seconds (Push) / 2-5 min (Sepolia)</InfoValue>
                   </InfoRow>
                 </TransferInfo>
               )}

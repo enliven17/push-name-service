@@ -154,72 +154,128 @@ export default function CreateListingModal({ domain, sellerAddress, onClose, onL
       console.log('🔍 Listing domain:', domain.name, '→', name);
       const priceWei = ethers.parseEther(price);
       
-      // Check if user is on Push Chain
+      // Initialize provider and check network
       const provider = new ethers.BrowserProvider(window.ethereum);
       const network = await provider.getNetwork();
-      console.log('🌐 Current network:', network.chainId);
+      const currentChainId = Number(network.chainId);
       
-      if (Number(network.chainId) !== 42101) {
-        setError('Please switch to Push Chain Donut Testnet (Chain ID: 42101) to list domains');
-        return;
-      }
+      console.log('🌐 Current network:', currentChainId);
       
       // Verify domain ownership before listing
       const signer = await provider.getSigner();
       const userAddress = await signer.getAddress();
       console.log('👤 User address:', userAddress);
       
-      // Check if user owns the domain
-      const contractAddress = process.env.NEXT_PUBLIC_PUSH_CHAIN_NAME_SERVICE_ADDRESS;
-      if (!contractAddress) {
-        setError('Push Chain Name Service contract not configured');
-        return;
-      }
-      
-      const nsContract = new ethers.Contract(
-        contractAddress,
-        [
-          'function ownerOf(string calldata name) external view returns (address)',
-          'function getDomainInfo(string calldata name) external view returns (address owner, uint64 expiration, uint256 sourceChainId, bool isUniversal, bool isExpired, string memory ipfsHash)'
-        ],
-        provider
-      );
-      
-      console.log('📋 Checking domain ownership for:', name);
-      const domainOwner = await nsContract.ownerOf(name);
-      console.log('👤 Domain owner:', domainOwner);
-      console.log('🔍 Zero address:', ethers.ZeroAddress);
-      
-      const domainInfo = await nsContract.getDomainInfo(name);
-      console.log('📋 Domain info:', domainInfo);
-      const isExpired = domainInfo.isExpired; // Contract already calculates this
-      
-      if (domainOwner === ethers.ZeroAddress) {
-        setError('Domain is not registered');
-        return;
-      }
-      
-      if (domainOwner.toLowerCase() !== userAddress.toLowerCase()) {
-        setError('You do not own this domain');
-        return;
-      }
-      
-      if (isExpired) {
-        setError('Domain has expired');
-        return;
+      // Check if user owns the domain (only on Push Chain)
+      if (currentChainId === 42101) {
+        const contractAddress = process.env.NEXT_PUBLIC_PUSH_CHAIN_NAME_SERVICE_ADDRESS;
+        if (!contractAddress) {
+          setError('Push Chain Name Service contract not configured');
+          return;
+        }
+        
+        const nsContract = new ethers.Contract(
+          contractAddress,
+          [
+            'function ownerOf(string calldata name) external view returns (address)',
+            'function getDomainInfo(string calldata name) external view returns (address owner, uint64 expiration, uint256 sourceChainId, bool isUniversal, bool isExpired, string memory ipfsHash)'
+          ],
+          provider
+        );
+        
+        console.log('📋 Checking domain ownership for:', name);
+        const domainOwner = await nsContract.ownerOf(name);
+        console.log('👤 Domain owner:', domainOwner);
+        
+        const domainInfo = await nsContract.getDomainInfo(name);
+        console.log('📋 Domain info:', domainInfo);
+        const isExpired = domainInfo.isExpired;
+        
+        if (domainOwner === ethers.ZeroAddress) {
+          setError('Domain is not registered');
+          return;
+        }
+        
+        if (domainOwner.toLowerCase() !== userAddress.toLowerCase()) {
+          setError('You do not own this domain');
+          return;
+        }
+        
+        if (isExpired) {
+          setError('Domain has expired');
+          return;
+        }
       }
       
       console.log('📋 Listing domain for price:', ethers.formatEther(priceWei), 'PC');
-      console.log('📤 Using Universal Signer for listing...');
       
-      // Use universal signer for listing
-      const { universalSigner } = await import('@/lib/universalSigner');
+      let txHash: string;
       
-      const result = await universalSigner.listDomain(name, priceWei.toString());
+      if (currentChainId === 42101) {
+        // On Push Chain - direct listing
+        console.log('📤 Direct listing on Push Chain...');
+        
+        const contractAddress = process.env.NEXT_PUBLIC_PUSH_CHAIN_NAME_SERVICE_ADDRESS;
+        if (!contractAddress) {
+          setError('Push Chain Name Service contract not configured');
+          return;
+        }
+        
+        const marketplaceContract = new ethers.Contract(
+          contractAddress,
+          ['function listDomain(string calldata name, uint256 price) external'],
+          signer
+        );
+        
+        const listTx = await marketplaceContract.listDomain(name, priceWei, {
+          gasLimit: 300000
+        });
+        
+        const listReceipt = await listTx.wait();
+        txHash = listReceipt.hash;
+        console.log('✅ Direct listing completed:', txHash);
+        
+      } else if (currentChainId === 11155111) {
+        // On Ethereum Sepolia - use EthBridge
+        console.log('📤 Listing via EthBridge on Ethereum Sepolia...');
+        
+        const ethBridgeAddress = process.env.NEXT_PUBLIC_ETH_BRIDGE_ADDRESS;
+        if (!ethBridgeAddress) {
+          setError('EthBridge address not configured');
+          return;
+        }
+        
+        const ethBridgeABI = [
+          'function requestMarketplaceListing(string calldata domainName, uint256 priceETH) external payable',
+          'function listingFeeETH() public view returns (uint256)'
+        ];
+        
+        const ethBridge = new ethers.Contract(ethBridgeAddress, ethBridgeABI, signer);
+        
+        // Get listing fee
+        const listingFee = await ethBridge.listingFeeETH();
+        console.log('💰 Listing fee:', ethers.formatEther(listingFee), 'ETH');
+        
+        // Convert PC price to ETH (1 PC = 0.001 ETH)
+        const priceETH = ethers.parseEther((parseFloat(price) * 0.001).toString());
+        
+        // Request listing via EthBridge
+        const listTx = await ethBridge.requestMarketplaceListing(
+          name,
+          priceETH,
+          { value: listingFee }
+        );
+        
+        const listReceipt = await listTx.wait();
+        txHash = listReceipt.hash;
+        console.log('✅ EthBridge listing request confirmed:', txHash);
+        
+      } else {
+        setError('Please switch to Push Chain Donut (42101) or Ethereum Sepolia (11155111) to list domains');
+        return;
+      }
       
-      console.log('✅ Domain listed successfully:', result.txHash);
-      
-      const txHash = result.txHash;
+      // txHash is already set above
 
       await marketplaceCreate(domain.id, sellerAddress, price, txHash, allowCrossChain);
       onListed();
@@ -246,6 +302,9 @@ export default function CreateListingModal({ domain, sellerAddress, onClose, onL
     try {
       // Create listing without listing_type for now
       const { supabase } = await import('@/lib/supabase');
+      if (!supabase) {
+        throw new Error('Supabase client not available');
+      }
       const result = await supabase
         .from('push_marketplace_listings')
         .insert({
