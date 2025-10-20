@@ -39,7 +39,8 @@ export const useGaslessRegistration = () => {
   // Execute gasless domain registration
   const registerDomainGasless = async (
     signer: ethers.Signer,
-    params: GaslessRegistrationParams
+    params: GaslessRegistrationParams,
+    onSuccess?: (data: { domainName: string; ethSepoliaTxHash: string; pushChainTxHash: string }) => void
   ) => {
     try {
       setIsLoading(true);
@@ -106,6 +107,15 @@ export const useGaslessRegistration = () => {
       
       // Step 4: Completed
       setCurrentStep('completed');
+      
+      // Call success callback if provided
+      if (onSuccess && result.pushChainTxHash) {
+        onSuccess({
+          domainName: `${domainName}.push`,
+          ethSepoliaTxHash: feeTransfer.hash,
+          pushChainTxHash: result.pushChainTxHash
+        });
+      }
       
       return result;
 

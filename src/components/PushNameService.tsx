@@ -6,6 +6,7 @@ import { ethers } from 'ethers'
 import { PushNameService as PushProtocolService } from '../lib/pushProtocol'
 import PushNameServiceContract from '../lib/pushNameServiceContract'
 import { getChainConfig, getContractAddresses, getPushProtocolAddresses, formatDomainName, isValidDomainName } from '../config/chains'
+import { RegistrationSuccessModal } from './RegistrationSuccessModal'
 
 interface DomainSearchResult {
   name: string
@@ -28,6 +29,15 @@ export default function PushNameService() {
   const [pushService, setPushService] = useState<PushProtocolService | null>(null)
   const [contract, setContract] = useState<PushNameServiceContract | null>(null)
   const [registrationCost, setRegistrationCost] = useState<string>('0')
+  
+  // Success modal states
+  const [showSuccessModal, setShowSuccessModal] = useState(false)
+  const [successData, setSuccessData] = useState<{
+    domainName: string;
+    ethSepoliaTxHash?: string;
+    pushChainTxHash?: string;
+    registrationMethod: 'direct' | 'gasless';
+  } | null>(null)
 
   // Initialize Push Protocol and contract
   useEffect(() => {
@@ -159,8 +169,13 @@ export default function PushNameService() {
       // Refresh search result
       await searchDomain()
       
-      // Show success notification
-      alert(`🎉 Successfully registered ${formatDomainName(searchResult.name)}!\n\nTransaction: ${tx.hash}\nCost: ${ethers.formatEther(cost)} ${chainConfig?.currency}`)
+      // Show success modal
+      setSuccessData({
+        domainName: formatDomainName(searchResult.name),
+        pushChainTxHash: tx.hash,
+        registrationMethod: 'direct'
+      })
+      setShowSuccessModal(true)
       
     } catch (error: any) {
       console.error('❌ Registration failed:', error)
@@ -490,6 +505,21 @@ export default function PushNameService() {
           </a>
         </div>
       </div>
+
+      {/* Success Modal */}
+      {successData && (
+        <RegistrationSuccessModal
+          isOpen={showSuccessModal}
+          onClose={() => {
+            setShowSuccessModal(false);
+            setSuccessData(null);
+          }}
+          domainName={successData.domainName}
+          ethSepoliaTxHash={successData.ethSepoliaTxHash}
+          pushChainTxHash={successData.pushChainTxHash}
+          registrationMethod={successData.registrationMethod}
+        />
+      )}
     </div>
   )
 }

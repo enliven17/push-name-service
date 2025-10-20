@@ -17,6 +17,7 @@ import { ConfirmationModal } from '@/components/ConfirmationModal';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useGaslessRegistration } from '@/hooks/useGaslessRegistration';
 import { GaslessProgress } from '@/components/GaslessProgress';
+import { RegistrationSuccessModal } from '@/components/RegistrationSuccessModal';
 import { useAccount, useDisconnect as useWagmiDisconnect } from 'wagmi';
 import { supportedChains, getChainConfig } from '@/config/chains';
 import { universalSignerService } from '@/lib/universalSigner';
@@ -48,7 +49,7 @@ const useScrambleText = (text: string, duration: number = 2000) => {
 
         // Each character reveals progressively from left to right
         const charProgress = Math.max(0, Math.min(1, (progress * 1.5) - (i / textLength) * 0.5));
-        
+
         if (charProgress >= 0.8) {
           result += text[i];
         } else if (charProgress > 0.2) {
@@ -61,12 +62,12 @@ const useScrambleText = (text: string, duration: number = 2000) => {
             const isUpperCase = text[i] >= 'A' && text[i] <= 'Z';
             const isLowerCase = text[i] >= 'a' && text[i] <= 'z';
             const isNumber = text[i] >= '0' && text[i] <= '9';
-            
+
             let charSet = scrambleChars;
             if (isUpperCase) charSet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
             else if (isLowerCase) charSet = 'abcdefghijklmnopqrstuvwxyz';
             else if (isNumber) charSet = '0123456789';
-            
+
             result += charSet[Math.floor(Math.random() * charSet.length)];
           }
         } else {
@@ -91,10 +92,10 @@ const useScrambleText = (text: string, duration: number = 2000) => {
 };
 
 // Scramble Text Component
-const ScrambleText: React.FC<{ text: string; delay?: number; duration?: number }> = ({ 
-  text, 
-  delay = 500, 
-  duration = 2000 
+const ScrambleText: React.FC<{ text: string; delay?: number; duration?: number }> = ({
+  text,
+  delay = 500,
+  duration = 2000
 }) => {
   const { displayText, startAnimation } = useScrambleText(text, duration);
   const [hasStarted, setHasStarted] = useState(false);
@@ -121,8 +122,8 @@ const ScrambleText: React.FC<{ text: string; delay?: number; duration?: number }
   }, [delay, startAnimation, hasStarted]);
 
   return (
-    <span style={{ 
-      opacity, 
+    <span style={{
+      opacity,
       transition: 'opacity 0.5s ease-in-out',
       display: 'inline-block',
       whiteSpace: 'pre-wrap'
@@ -894,11 +895,20 @@ export default function Home() {
     isOpen: false,
     title: '',
     message: '',
-    onConfirm: () => {}
+    onConfirm: () => { }
   });
   const [devnetIssue, setDevnetIssue] = useState(false);
   // All Push domains are universal by default - no checkbox needed
-  const [domainInfoCache, setDomainInfoCache] = useState<{[key: string]: any}>({});
+  const [domainInfoCache, setDomainInfoCache] = useState<{ [key: string]: any }>({});
+
+  // Success modal states
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [successData, setSuccessData] = useState<{
+    domainName: string;
+    ethSepoliaTxHash?: string;
+    pushChainTxHash?: string;
+    registrationMethod: 'direct' | 'gasless';
+  } | null>(null);
 
   const { showSuccess, showError, showWarning, NotificationContainer } = useNotification();
   const { registerDomainGasless, isLoading: isGaslessLoading, currentStep } = useGaslessRegistration();
@@ -912,7 +922,7 @@ export default function Home() {
   // Support both Push Chain and Ethereum Sepolia
   const currentChainId = chainId || 42101; // Default to Push Chain
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  
+
   // Check if user is on supported chain (Push Chain or Ethereum Sepolia)
   const isSupportedChain = currentChainId === 42101 || currentChainId === 11155111;
   const isWrongNetwork = walletConnected && !isSupportedChain;
@@ -957,25 +967,25 @@ export default function Home() {
   // Domain search function
   const searchDomain = async (): Promise<void> => {
     const trimmedQuery = searchQuery.trim();
-    
+
     if (!trimmedQuery) return;
-    
+
     // Clear previous error
     setErrorMessage('');
-    
+
     // Check minimum length
     if (trimmedQuery.length < 3) {
       setErrorMessage('Domain name must be at least 3 characters long');
       return;
     }
-    
+
     // Check for valid characters (alphanumeric and hyphens)
     const validPattern = /^[a-zA-Z0-9-]+$/;
     if (!validPattern.test(trimmedQuery)) {
       setErrorMessage('Domain name can only contain letters, numbers, and hyphens');
       return;
     }
-    
+
     // Check if starts or ends with hyphen
     if (trimmedQuery.startsWith('-') || trimmedQuery.endsWith('-')) {
       setErrorMessage('Domain name cannot start or end with a hyphen');
@@ -992,13 +1002,13 @@ export default function Home() {
       } catch (error) {
         console.warn('⚠️ Database check failed:', error);
       }
-      
+
       // Domain availability is determined solely by database
       const isAvailable = databaseAvailable;
-      
+
       // Get dynamic price based on current chain
       let price = '1 PC'; // Default fallback
-      
+
       if (isSepoliaChain) {
         // User is on Ethereum Sepolia - show ETH price with PC equivalent
         price = '0.001 ETH (≈ 1 PC)';
@@ -1009,9 +1019,9 @@ export default function Home() {
         // User is on unsupported chain - show generic price
         price = '1 PC (Switch to Push Chain or Ethereum Sepolia)';
       }
-      
+
       console.log('💰 Final price:', price, 'for chain:', currentChainId);
-      
+
       setSearchResult({
         name: trimmedQuery.toLowerCase(),
         available: isAvailable,
@@ -1042,86 +1052,95 @@ export default function Home() {
       message: `You are about to register "${searchResult.name}.push"${universalText} for ${searchResult.price} (1 year).${universalNote} This transaction cannot be undone.`,
       onConfirm: async () => {
         setConfirmModal(prev => ({ ...prev, isOpen: false }));
-        
+
         setIsRegistering(true);
         try {
           let transactionHash = '';
-          
+
           // Check if user is on Ethereum Sepolia for gasless registration
           if (isSepoliaChain) {
             console.log('🌉 Using gasless registration from Ethereum Sepolia...');
             console.log('💡 User only signs message, no gas fee!');
-            
+
             if (!window.ethereum) {
               throw new Error('No wallet connected. Please connect your wallet to register domains.');
             }
-            
+
             const { ethers } = await import('ethers');
             const provider = new ethers.BrowserProvider(window.ethereum);
             const signer = await provider.getSigner();
             const signerAddress = await signer.getAddress();
-            
+
             console.log('👤 User address on Sepolia:', signerAddress);
             console.log('🔐 User will only sign message (gasless)');
-            
+
             // Execute gasless registration (user only signs, no gas fee)
             const gaslessResult = await registerDomainGasless(signer, {
               domainName: searchResult.name,
               userAddress: signerAddress
+            }, (data) => {
+              // Show success modal with both transaction hashes
+              setSuccessData({
+                domainName: data.domainName,
+                ethSepoliaTxHash: data.ethSepoliaTxHash,
+                pushChainTxHash: data.pushChainTxHash,
+                registrationMethod: 'gasless'
+              });
+              setShowSuccessModal(true);
             });
-            
+
             transactionHash = gaslessResult.universalTxHash;
             console.log('✅ Gasless registration completed:', transactionHash);
             console.log('📋 Relayer TX:', gaslessResult.txHash);
             console.log('📋 Request ID:', gaslessResult.requestId);
-            
+
           } else {
             // Direct registration on Push Chain
             console.log('🔗 Direct registration on Push Chain...');
-            
+
             if (!window.ethereum) {
               throw new Error('No wallet connected. Please connect your wallet to register domains.');
             }
-            
+
             console.log('🌐 All Push domains are universal by default');
             console.log('💰 This will cost', searchResult.price, '+ gas fees');
-            
+
             const { ethers } = await import('ethers');
             const provider = new ethers.BrowserProvider(window.ethereum);
             const signer = await provider.getSigner();
             const signerAddress = await signer.getAddress();
-            
+
             console.log('👤 Signer address:', signerAddress);
-            
+
             const contractAddress = process.env.NEXT_PUBLIC_PUSH_CHAIN_NAME_SERVICE_ADDRESS;
             if (!contractAddress) {
               throw new Error('Contract address not configured');
             }
-            
+
             console.log('📍 Contract address:', contractAddress);
-            
+
             const contract = new PushNameServiceContract(
               contractAddress,
               signer,
               currentChainId,
               { env: 'staging', account: signerAddress }
             );
-            
+
             try {
               await contract.initialize();
               console.log('✅ Contract initialized for registration');
             } catch (initError) {
               console.warn('⚠️ Contract initialization failed, continuing:', initError);
             }
-            
+
             // Get registration cost and send transaction
             const registrationCost = await contract.getRegistrationCost();
             console.log('💰 Registration cost:', ethers.formatEther(registrationCost), 'PC');
-            
+
             const tx = await contract.register(searchResult.name, true, registrationCost);
             transactionHash = tx.hash;
             console.log('📤 Transaction sent:', transactionHash);
-            
+
             const receipt = await tx.wait();
             console.log('✅ Registration confirmed:', receipt?.hash);
           }
@@ -1132,7 +1151,7 @@ export default function Home() {
             const provider = new ethers.BrowserProvider(window.ethereum);
             const signer = await provider.getSigner();
             const signerAddress = await signer.getAddress();
-            
+
             // Register in database using the correct service
             const priceValue = parseFloat(searchResult.price.split(' ')[0]) || 1.0;
             const newDomain = await domainService.registerDomain(
@@ -1151,19 +1170,19 @@ export default function Home() {
           setSearchResult(null);
           setSearchQuery('');
           // Universal option removed - all domains are universal
-          
-          // Success notification
-          const successMessage = `🌐 ${searchResult.name}.push has been registered as a universal domain! You can now transfer it across multiple blockchains using Push Protocol.\n\nTransaction: ${transactionHash}`;
-            
-          showSuccess(
-            'Domain Registered Successfully!',
-            successMessage
-          );
+
+          // Show success modal for direct registration
+          setSuccessData({
+            domainName: `${searchResult.name}.push`,
+            pushChainTxHash: transactionHash,
+            registrationMethod: 'direct'
+          });
+          setShowSuccessModal(true);
         } catch (error: any) {
           console.error('❌ Domain registration failed:', error);
-          
+
           let errorMessage = 'Failed to register domain. Please try again.';
-          
+
           if (error.code === 'ACTION_REJECTED') {
             errorMessage = 'Transaction was rejected by user.';
           } else if (error.code === 'INSUFFICIENT_FUNDS') {
@@ -1175,7 +1194,7 @@ export default function Home() {
           } else if (error.message) {
             errorMessage = error.message;
           }
-          
+
           showError('Registration Failed', errorMessage);
         } finally {
           setIsRegistering(false);
@@ -1192,7 +1211,7 @@ export default function Home() {
       // Push Protocol contract will be used here
       // const contract = new PushNameServiceContract(contractAddress, signer, currentChainId, pushConfig);
       const cleanName = domainName.replace('.push', '');
-      
+
       // const info = await contract.getDomainInfo(cleanName);
       // For now, return default info
       const info = {
@@ -1202,13 +1221,13 @@ export default function Home() {
         isUniversal: false,
         isExpired: false
       };
-      
+
       // Cache the result
       setDomainInfoCache(prev => ({
         ...prev,
         [domainName]: info
       }));
-      
+
       return info;
     } catch (error: any) {
       // For domains that don't exist on-chain, create a default info
@@ -1219,13 +1238,13 @@ export default function Home() {
         isUniversal: false,
         isExpired: false
       };
-      
+
       // Cache the default result
       setDomainInfoCache(prev => ({
         ...prev,
         [domainName]: defaultInfo
       }));
-      
+
       return defaultInfo;
     }
   };
@@ -1237,13 +1256,13 @@ export default function Home() {
     try {
       // Always load from Push Chain database regardless of current network
       const domains = await domainService.getDomainsByOwner(currentAddress);
-      
+
       // Add .push extension for display
       const displayDomains = domains.map(domain => ({
         ...domain,
         name: domain.name + '.push'
       }));
-      
+
       setUserDomains(displayDomains);
       console.log(`📋 Loaded ${displayDomains.length} universal domains from Push Chain`);
 
@@ -1312,21 +1331,21 @@ export default function Home() {
     if (!userListings || userListings.length === 0) {
       return false;
     }
-    
+
     const isListed = userListings.some(listing => {
       if (!listing || !listing.domain) return false;
-      
+
       const listingDomainName = listing.domain.name;
       if (!listingDomainName) return false;
-      
+
       // Remove .push extension from domainName for comparison
       const cleanDomainName = domainName.replace('.push', '');
       const cleanListingName = listingDomainName.replace('.push', '');
-      
-      return (cleanListingName === cleanDomainName || listingDomainName === domainName) && 
-             listing.status === 'active';
+
+      return (cleanListingName === cleanDomainName || listingDomainName === domainName) &&
+        listing.status === 'active';
     });
-    
+
     return isListed;
   };
 
@@ -1387,7 +1406,7 @@ export default function Home() {
   // Canvas animation effect
   useEffect(() => {
     if (isPageLoading) return; // Don't start animation during loading
-    
+
     const canvas = canvasRef.current;
     if (!canvas) return;
 
@@ -1485,13 +1504,13 @@ export default function Home() {
                 Push Name Service
               </Title>
               <Subtitle>
-                <ScrambleText 
+                <ScrambleText
                   text={(() => {
                     const chainConfig = getChainConfig(currentChainId);
                     const chainName = chainConfig?.name || 'Push Chain Donut';
                     const bridgeText = isSepoliaChain ? ' (Gasless Bridge Available)' : '';
                     return `Get your own domain on ${chainName}${bridgeText} with .push`;
-                  })()} 
+                  })()}
                   delay={800}
                   duration={2500}
                 />
@@ -1506,7 +1525,7 @@ export default function Home() {
                   <FaExclamationTriangle />
                   <div>
                     <strong>Unsupported Network!</strong><br />
-                    Please switch to Push Chain Donut (42101) or Ethereum Sepolia (11155111). 
+                    Please switch to Push Chain Donut (42101) or Ethereum Sepolia (11155111).
                     Gasless bridge available from Sepolia!
                   </div>
                 </NetworkWarningBanner>
@@ -1539,7 +1558,7 @@ export default function Home() {
                   <ConnectButton showBalance={false} accountStatus="address" />
                 </div>
               )}
-              
+
 
 
 
@@ -1585,7 +1604,7 @@ export default function Home() {
 
                       {/* Show gasless progress when on Sepolia and registering */}
                       {isSepoliaChain && (isRegistering || isGaslessLoading) && (
-                        <GaslessProgress 
+                        <GaslessProgress
                           currentStep={currentStep}
                           isVisible={true}
                         />
@@ -1600,12 +1619,12 @@ export default function Home() {
                           onClick={registerDomain}
                           disabled={isRegistering || isGaslessLoading}
                         >
-                          {isRegistering || isGaslessLoading ? 
-                            (isSepoliaChain ? 
+                          {isRegistering || isGaslessLoading ?
+                            (isSepoliaChain ?
                               (currentStep === 'payment' ? 'Pay Domain Fee...' :
-                               currentStep === 'signature' ? 'Sign Message...' :
-                               'Processing...') : 
-                              'Registering Universal Domain...') : 
+                                currentStep === 'signature' ? 'Sign Message...' :
+                                  'Processing...') :
+                              'Registering Universal Domain...') :
                             (isSepoliaChain ? 'Register (Gasless)' : 'Register Universal Domain')
                           }
                         </RegisterButton>
@@ -1643,12 +1662,12 @@ export default function Home() {
                                 width: '100%',
                                 height: '56px',
                                 padding: '0 16px',
-                                border: chain?.unsupported 
-                                  ? '2px solid rgba(239, 68, 68, 0.3)' 
+                                border: chain?.unsupported
+                                  ? '2px solid rgba(239, 68, 68, 0.3)'
                                   : '2px solid rgba(236, 72, 153, 0.3)',
                                 borderRadius: '20px',
-                                background: chain?.unsupported 
-                                  ? 'rgba(239, 68, 68, 0.1)' 
+                                background: chain?.unsupported
+                                  ? 'rgba(239, 68, 68, 0.1)'
                                   : 'rgba(236, 72, 153, 0.1)',
                                 color: chain?.unsupported ? '#ef4444' : '#ec4899',
                                 fontSize: '1.1rem',
@@ -1661,19 +1680,19 @@ export default function Home() {
                                 gap: '12px'
                               }}
                               onMouseEnter={(e) => {
-                                e.currentTarget.style.background = chain?.unsupported 
-                                  ? 'rgba(239, 68, 68, 0.2)' 
+                                e.currentTarget.style.background = chain?.unsupported
+                                  ? 'rgba(239, 68, 68, 0.2)'
                                   : 'rgba(236, 72, 153, 0.2)';
-                                e.currentTarget.style.borderColor = chain?.unsupported 
-                                  ? 'rgba(239, 68, 68, 0.5)' 
+                                e.currentTarget.style.borderColor = chain?.unsupported
+                                  ? 'rgba(239, 68, 68, 0.5)'
                                   : 'rgba(236, 72, 153, 0.5)';
                               }}
                               onMouseLeave={(e) => {
-                                e.currentTarget.style.background = chain?.unsupported 
-                                  ? 'rgba(239, 68, 68, 0.1)' 
+                                e.currentTarget.style.background = chain?.unsupported
+                                  ? 'rgba(239, 68, 68, 0.1)'
                                   : 'rgba(236, 72, 153, 0.1)';
-                                e.currentTarget.style.borderColor = chain?.unsupported 
-                                  ? 'rgba(239, 68, 68, 0.3)' 
+                                e.currentTarget.style.borderColor = chain?.unsupported
+                                  ? 'rgba(239, 68, 68, 0.3)'
                                   : 'rgba(236, 72, 153, 0.3)';
                               }}
                             >
@@ -1709,16 +1728,16 @@ export default function Home() {
                       );
                     }}
                   </ConnectButton.Custom>
-                  
-                  <DisconnectButton 
-                    onClick={async () => { 
-                      try { 
-                        await wagmiDisconnect?.(); 
+
+                  <DisconnectButton
+                    onClick={async () => {
+                      try {
+                        await wagmiDisconnect?.();
                       } catch (e) {
                         console.error('Wagmi disconnect error:', e);
                       }
-                      try { 
-                        disconnect(); 
+                      try {
+                        disconnect();
                       } catch (e) {
                         console.error('Custom disconnect error:', e);
                       }
@@ -1747,13 +1766,13 @@ export default function Home() {
                       </DomainCounter>
                       {userDomains.length > 2 && (
                         <NavigationControls>
-                          <NavButton 
+                          <NavButton
                             onClick={goToPreviousDomain}
                             disabled={currentDomainIndex === 0}
                           >
                             <FaChevronUp size={14} />
                           </NavButton>
-                          <NavButton 
+                          <NavButton
                             onClick={goToNextDomain}
                             disabled={currentDomainIndex >= Math.max(0, userDomains.length - 2)}
                           >
@@ -1768,7 +1787,7 @@ export default function Home() {
                         {userDomains.map((domain, index) => {
                           const isListed = isDomainListed(domain.name);
                           const isExpired = new Date(domain.expiration_date) <= new Date();
-                          
+
                           return (
                             <DomainCard key={index}>
                               <DomainCardHeaderWithBadge>
@@ -1798,14 +1817,14 @@ export default function Home() {
                                 <span>Expires: {formatDate(domain.expiration_date)}</span>
                               </DomainCardInfo>
                               <DomainActions>
-                                <ActionButton 
+                                <ActionButton
                                   onClick={() => setTransferDomain(domain)}
                                   disabled={isExpired}
                                 >
                                   <FaPaperPlane />
                                   Transfer
                                 </ActionButton>
-                                <ActionButton 
+                                <ActionButton
                                   onClick={() => setListDomain(domain)}
                                   disabled={isListed || isExpired || currentChainId !== 42101}
                                   style={{
@@ -1857,13 +1876,13 @@ export default function Home() {
                       </DomainCounter>
                       {transferHistory.length > 2 && (
                         <NavigationControls>
-                          <NavButton 
+                          <NavButton
                             onClick={goToPreviousTransfer}
                             disabled={currentTransferIndex === 0}
                           >
                             <FaChevronUp size={14} />
                           </NavButton>
-                          <NavButton 
+                          <NavButton
                             onClick={goToNextTransfer}
                             disabled={currentTransferIndex >= Math.max(0, transferHistory.length - 2)}
                           >
@@ -1877,11 +1896,11 @@ export default function Home() {
                       <TransferList $currentIndex={currentTransferIndex}>
                         {transferHistory.map((transfer, index) => {
                           const isSent = transfer.from_address.toLowerCase() === currentAddress?.toLowerCase();
-                          
+
                           return (
                             <DomainCard key={index}>
                               <DomainCardHeader>
-                              <DomainCardName>{transfer.domains?.name}.push</DomainCardName>
+                                <DomainCardName>{transfer.domains?.name}.push</DomainCardName>
                                 <DomainStatus status={transfer.status === 'completed' ? 'active' : 'expired'}>
                                   {isSent ? '📤 Sent' : '📥 Received'}
                                 </DomainStatus>
@@ -1895,20 +1914,20 @@ export default function Home() {
                               </DomainCardInfo>
                               <DomainCardInfo>
                                 <span>
-                                  Status: 
-                                  <span style={{ 
-                                    color: transfer.status === 'completed' ? '#ec4899' : 
-                                           transfer.status === 'pending' ? '#f59e0b' : '#ef4444',
+                                  Status:
+                                  <span style={{
+                                    color: transfer.status === 'completed' ? '#ec4899' :
+                                      transfer.status === 'pending' ? '#f59e0b' : '#ef4444',
                                     fontWeight: '600',
                                     marginLeft: '4px'
                                   }}>
-                                    {transfer.status === 'completed' ? '✅ Completed' : 
-                                     transfer.status === 'pending' ? '⏳ Processing' : '❌ Failed'}
+                                    {transfer.status === 'completed' ? '✅ Completed' :
+                                      transfer.status === 'pending' ? '⏳ Processing' : '❌ Failed'}
                                   </span>
                                 </span>
                                 {transfer.transaction_hash && (
                                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                    <a 
+                                    <a
                                       href={`https://donut.push.network/tx/${transfer.transaction_hash}`}
                                       target="_blank"
                                       rel="noopener noreferrer"
@@ -1919,7 +1938,7 @@ export default function Home() {
                                     {transfer.target_chain_id === 11155111 && (
                                       <>
                                         <span style={{ color: 'rgba(255,255,255,0.5)' }}>|</span>
-                                        <a 
+                                        <a
                                           href={`https://sepolia.etherscan.io/tx/${transfer.transaction_hash}`}
                                           target="_blank"
                                           rel="noopener noreferrer"
@@ -1932,7 +1951,7 @@ export default function Home() {
                                     {transfer.target_chain_id === 'solana-devnet' && (
                                       <>
                                         <span style={{ color: 'rgba(255,255,255,0.5)' }}>|</span>
-                                        <a 
+                                        <a
                                           href={`https://explorer.solana.com/tx/${transfer.transaction_hash}?cluster=devnet`}
                                           target="_blank"
                                           rel="noopener noreferrer"
@@ -2011,7 +2030,7 @@ export default function Home() {
             </NavText>
           </NavItem>
         </BottomNavigation>
-        
+
         {transferDomain && (
           <DomainTransfer
             domain={transferDomain}
@@ -2043,6 +2062,21 @@ export default function Home() {
         />
 
         <NotificationContainer />
+
+        {/* Success Modal */}
+        {successData && (
+          <RegistrationSuccessModal
+            isOpen={showSuccessModal}
+            onClose={() => {
+              setShowSuccessModal(false);
+              setSuccessData(null);
+            }}
+            domainName={successData.domainName}
+            ethSepoliaTxHash={successData.ethSepoliaTxHash}
+            pushChainTxHash={successData.pushChainTxHash}
+            registrationMethod={successData.registrationMethod}
+          />
+        )}
       </PageContainer>
     </>
   );
