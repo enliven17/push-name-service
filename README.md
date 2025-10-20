@@ -1,4 +1,4 @@
-# 🚀 Push Name Service
+# Push Universal Name Service
 
 Universal .push domains powered by Push Protocol for cross-chain Web3 identity and communication.
 
@@ -6,29 +6,50 @@ Universal .push domains powered by Push Protocol for cross-chain Web3 identity a
 ![Next.js](https://img.shields.io/badge/Next.js-15-black?style=for-the-badge&logo=next.js&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?style=for-the-badge&logo=typescript&logoColor=white)
 
-## 🌟 Features
+## Features
 
 - **Universal Domains**: Register .push domains that work across multiple blockchains
-- **Cross-Chain Transfers**: Move your domains between supported networks
+- **Cross-Chain Transfers**: Move your domains between supported networks using Universal Signer
 - **Push Notifications**: Built-in notification system for domain events
-- **IPFS Integration**: Host decentralized websites on your .push domain
-- **DNS Records**: Traditional DNS functionality (A, CNAME, TXT records)
-- **Marketplace**: Buy and sell domains in the integrated marketplace
+- **Marketplace**: Buy and sell domains with integrated marketplace
+- **Gasless Registration**: Register domains from Ethereum Sepolia without gas fees
+- **Explorer Integration**: View transactions on both Ethereum and Push Chain explorers
 
-## 🍩 Supported Networks
+## Supported Networks
 
 ### Testnet (Current)
-- **Push Chain Donut Testnet** (Main Hub) - Chain ID: 42101
-- **Ethereum Sepolia** - Chain ID: 11155111
+- **Push Chain Donut Testnet** (Primary) - Chain ID: 42101
+- **Ethereum Sepolia** (Bridge Support) - Chain ID: 11155111
 
-### Mainnet (Coming Soon)
+### Mainnet (Planned)
 - Ethereum Mainnet
 - Polygon
 - BSC (Binance Smart Chain)
 - Arbitrum
 - Optimism
 
-## 🚀 Quick Start
+## Contract Addresses
+
+### Push Chain Donut Testnet (42101)
+```
+Push Name Service Contract: 0x20Dc18392a7310962dad45FC7ba272F86F2CB197
+Universal Executor Factory: 0x00000000000000000000000000000000000000eA
+Universal Verification Precompile: 0x00000000000000000000000000000000000000ca
+```
+
+### Ethereum Sepolia (11155111)
+```
+EthBridge Contract: 0xf74d5BB4be74715e692ac32b35d631d6b9a8fC49
+Ethereum Sepolia Gateway: 0x05bD7a3D18324c1F7e216f7fBF2b15985aE5281A
+```
+
+### Treasury & Management
+```
+Treasury Address: 0x71197e7a1CA5A2cb2AD82432B924F69B1E3dB123
+Universal Signer: 0x71197e7a1CA5A2cb2AD82432B924F69B1E3dB123
+```
+
+## Quick Start
 
 ### 1. Setup MetaMask
 
@@ -48,16 +69,86 @@ Visit the [Push Faucet](https://faucet.push.org/) to get test PC tokens.
 
 ### 3. Register Your Domain
 
-1. Visit [Push Name Service](https://push-name-service.vercel.app)
-2. Connect your wallet
-3. Search for your desired domain name
-4. Choose "Universal Domain" for cross-chain functionality
-5. Pay 0.001 PC and register!
+1. **Direct Registration (Push Chain)**:
+   - Connect wallet to Push Chain Donut
+   - Search for available domain
+   - Pay 1.0 PC + gas fees
+   - Domain registered instantly
 
-## 🛠️ Development
+2. **Gasless Registration (Ethereum Sepolia)**:
+   - Connect wallet to Ethereum Sepolia
+   - Pay 0.001 ETH (no gas fees for registration)
+   - Sign authorization message
+   - Domain registered on Push Chain via Universal Signer
+
+## Architecture Overview
+
+### Universal Bridge System
+The system supports operations from both Push Chain and Ethereum Sepolia:
+
+- **Push Chain**: Direct execution with PC tokens
+- **Ethereum Sepolia**: Bridge execution via EthBridge contract and Universal Signer
+
+### Registration Methods
+
+#### Direct Registration (Push Chain)
+```solidity
+function register(string calldata name, bool makeUniversal) external payable
+```
+
+#### Gasless Registration (Ethereum Sepolia)
+```solidity
+function requestDomainRegistration(string calldata domainName) external payable
+```
+
+### Transfer Operations
+
+#### Direct Transfer (Push Chain)
+```solidity
+function transfer(string calldata name, address to) external
+```
+
+#### Bridge Transfer (Ethereum Sepolia)
+```solidity
+function requestDomainTransfer(
+    string calldata domainName, 
+    address toAddress, 
+    uint256 targetChainId
+) external payable
+```
+
+### Marketplace Operations
+
+#### Direct Listing (Push Chain)
+```solidity
+function listDomain(string calldata name, uint256 price) external
+```
+
+#### Bridge Listing (Ethereum Sepolia)
+```solidity
+function requestMarketplaceListing(
+    string calldata domainName, 
+    uint256 priceETH
+) external payable
+```
+
+## Fee Structure
+
+### Push Chain Donut (Direct)
+- Registration: 1.0 PC
+- Transfer: 0.0001 PC
+- Listing: Free
+- Gas: Very low (< 0.001 PC)
+
+### Ethereum Sepolia (Bridge)
+- Registration: 0.001 ETH
+- Transfer: 0.0002 ETH
+- Listing: 0.0002 ETH
+- Gas: User pays for bridge transaction only
+
+## Development
 
 ### Prerequisites
-
 - Node.js 18+
 - npm or yarn
 - MetaMask or compatible wallet
@@ -65,184 +156,189 @@ Visit the [Push Faucet](https://faucet.push.org/) to get test PC tokens.
 ### Installation
 
 ```bash
-git clone https://github.com/push-protocol/push-name-service
+# Clone repository
+git clone https://github.com/your-org/push-name-service
 cd push-name-service
-npm install --legacy-peer-deps
+
+# Install dependencies
+npm install
+
+# Setup environment variables
+cp .env.example .env.local
+# Edit .env.local with your configuration
+
+# Run development server
+npm run dev
 ```
 
-### Environment Setup
+### Environment Variables
 
-Create a `.env.local` file:
-
-```env
+```bash
 # Supabase Configuration
 NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 
+# Contract Addresses
+NEXT_PUBLIC_PUSH_CHAIN_NAME_SERVICE_ADDRESS=0x20Dc18392a7310962dad45FC7ba272F86F2CB197
+NEXT_PUBLIC_ETH_BRIDGE_ADDRESS=0xf74d5BB4be74715e692ac32b35d631d6b9a8fC49
+
+# Network Configuration
+NEXT_PUBLIC_PUSH_CHAIN_RPC_URL=https://evm.rpc-testnet-donut-node1.push.org/
+NEXT_PUBLIC_ETH_SEPOLIA_RPC_URL=https://1rpc.io/sepolia
+
 # Push Protocol
 NEXT_PUBLIC_PUSH_ENV=staging
-NEXT_PUBLIC_PUSH_CHAIN_RPC_URL=https://evm.rpc-testnet-donut-node1.push.org/
-
-# Wallet Connect
-NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_project_id
 ```
 
-### Run Development Server
+### Project Structure
 
-```bash
-npm run dev
+```
+src/
+├── app/                    # Next.js app router
+├── components/             # React components
+│   ├── PushNameService.tsx # Main registration component
+│   ├── DomainTransfer.tsx  # Transfer functionality
+│   ├── MarketplaceListings.tsx # Marketplace
+│   └── RegistrationSuccessModal.tsx # Success modal
+├── hooks/                  # Custom React hooks
+│   └── useGaslessRegistration.ts # Gasless registration logic
+├── lib/                    # Utility libraries
+│   ├── universalSigner.ts  # Universal Signer service
+│   ├── pushProtocol.ts     # Push Protocol integration
+│   └── supabase.ts         # Database client
+├── contracts/              # Smart contracts
+│   ├── EthBridge.sol       # Ethereum bridge contract
+│   └── PushUniversalNameService.sol # Main contract
+└── config/                 # Configuration files
+    └── chains.ts           # Network configurations
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+## API Endpoints
 
-### Deploy Smart Contracts
+### Gasless Registration
+```
+POST /api/gasless-register
+```
 
+Request body:
+```json
+{
+  "domainName": "example",
+  "userAddress": "0x...",
+  "signature": "0x...",
+  "message": "Register domain: example.push...",
+  "nonce": "1234567890",
+  "feeTransferTxHash": "0x..."
+}
+```
+
+## Testing
+
+### Run Tests
 ```bash
-# Deploy to Push Chain Donut Testnet
+# Run contract tests
+npm run test:contracts
+
+# Run integration tests
+npm run test:integration
+
+# Test gasless registration
+node scripts/test-gasless-registration.js
+
+# Test universal signer
+node scripts/test-universal-signer.js
+```
+
+### Test Scenarios
+- Domain registration (direct and gasless)
+- Domain transfers (same-chain and cross-chain)
+- Marketplace operations (listing, purchasing)
+- Universal Signer functionality
+- Database synchronization
+
+## Deployment
+
+### Contract Deployment
+```bash
+# Deploy to Push Chain Donut
 npm run deploy:push-chain
 
 # Deploy to Ethereum Sepolia
 npm run deploy:ethereum-sepolia
 
-# Deploy to all testnets
-npm run deploy:testnet
+# Verify contracts
+npm run verify:contracts
 ```
 
-## 📚 Documentation
+### Frontend Deployment
+```bash
+# Build for production
+npm run build
 
-- [Complete User Guide](./docs/PUSH_NAME_SERVICE_GUIDE.md)
-- [Quick Start Guide](./docs/QUICK_START.md)
-- [Smart Contract Documentation](./contracts/)
-- [API Reference](./docs/API.md)
+# Deploy to Vercel
+vercel deploy
 
-## 🏗️ Architecture
-
-```
-┌─────────────────┐    ┌─────────────────┐
-│   Frontend      │    │   Push Chain    │
-│   (Next.js)     │◄──►│   Contracts     │
-└─────────────────┘    └─────────────────┘
-         │                       │
-         ▼                       ▼
-┌─────────────────┐    ┌─────────────────┐
-│   Supabase      │    │ Push Protocol   │
-│   Database      │    │   Network       │
-└─────────────────┘    └─────────────────┘
+# Or deploy to other platforms
+npm run export
 ```
 
-### Tech Stack
-
-- **Frontend**: Next.js 15, TypeScript, Tailwind CSS
-- **Blockchain**: Solidity, Hardhat, ethers.js
-- **Database**: Supabase (PostgreSQL)
-- **Wallet**: RainbowKit, wagmi
-- **Notifications**: Push Protocol SDK
-
-## 🔧 Smart Contracts
-
-### PushUniversalNameService.sol
-
-Main contract for domain registration and management:
-
-```solidity
-function register(string calldata name, bool makeUniversal) external payable
-function crossChainTransfer(string calldata name, address to, uint256 targetChainId) external payable
-function setRecord(string calldata name, string calldata recordType, string calldata value) external
-```
-
-### Deployed Addresses
-
-#### Push Chain Donut Testnet
-- **Name Service**: `TBD`
-- **Universal Executor Factory**: `0x00000000000000000000000000000000000000eA`
-
-#### Ethereum Sepolia
-- **Name Service**: `TBD`
-- **Gateway**: `0x05bD7a3D18324c1F7e216f7fBF2b15985aE5281A`
-
-## 🎯 Use Cases
-
-### 1. Web3 Identity
-```
-alice.push → 0x1234...5678 (wallet address)
-```
-
-### 2. Decentralized Websites
-```
-https://alice.push → IPFS-hosted website
-```
-
-### 3. Cross-Chain Payments
-```javascript
-// Send tokens to a .push domain
-send(100, "alice.push")
-```
-
-### 4. Push Notifications
-```javascript
-// Notify domain owner
-pushProtocol.notify("alice.push", "Payment received!")
-```
-
-## 🛣️ Roadmap
-
-### Phase 1: Testnet ✅
-- [x] Push Chain Donut Testnet integration
-- [x] Basic domain registration
-- [x] Universal domain support
-- [x] Cross-chain transfers
-
-### Phase 2: Mainnet 🔄
-- [ ] Ethereum Mainnet deployment
-- [ ] Multi-chain support (Polygon, BSC, Arbitrum)
-- [ ] Security audit
-- [ ] Production launch
-
-### Phase 3: Advanced Features 📅
-- [ ] Subdomain support
-- [ ] ENS integration
-- [ ] Mobile app
-- [ ] Advanced DNS features
-
-### Phase 4: Ecosystem 🚀
-- [ ] Developer SDK
-- [ ] Browser extension
-- [ ] DeFi integrations
-- [ ] Social features
-
-## 🤝 Contributing
-
-We welcome contributions! Please see our [Contributing Guide](./CONTRIBUTING.md) for details.
-
-### Development Workflow
+## Contributing
 
 1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Submit a pull request
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
-## 📄 License
+### Development Guidelines
+- Follow TypeScript best practices
+- Write comprehensive tests
+- Update documentation for new features
+- Ensure cross-browser compatibility
+- Test on both supported networks
 
-This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
+## Security
 
-## 🔗 Links
+### Audit Status
+- Smart contracts: Pending audit
+- Frontend: Security review completed
+- Database: RLS policies implemented
 
-- **Website**: https://push-name-service.vercel.app
-- **Push Protocol**: https://push.org
-- **Documentation**: https://docs.push.org
-- **Discord**: https://discord.gg/pushprotocol
-- **Twitter**: [@pushprotocol](https://twitter.com/pushprotocol)
+### Security Features
+- Multi-signature treasury management
+- Rate limiting on API endpoints
+- Input validation and sanitization
+- Secure signature verification
+- Protected database operations
 
-## 🙏 Acknowledgments
+## Roadmap
 
-- [Push Protocol](https://push.org) for the amazing cross-chain infrastructure
-- [Ethereum](https://ethereum.org) for the foundational blockchain technology
-- [Next.js](https://nextjs.org) for the excellent React framework
-- [Supabase](https://supabase.com) for the backend infrastructure
+### Phase 1 (Current)
+- ✅ Basic domain registration
+- ✅ Universal Signer integration
+- ✅ Gasless registration
+- ✅ Marketplace functionality
+- ✅ Cross-chain transfers
 
----
 
-**Built with ❤️ by the Push Protocol community**
+### Community
+- [Discord](https://discord.gg/pushprotocol)
+- [Telegram](https://t.me/pushprotocol)
+- [Twitter](https://twitter.com/pushprotocol)
 
-*Universal .push domains for the decentralized web* 🌐
+### Issues
+- Report bugs: [GitHub Issues](https://github.com/your-org/push-name-service/issues)
+- Feature requests: [GitHub Discussions](https://github.com/your-org/push-name-service/discussions)
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Acknowledgments
+
+- [Push Protocol](https://push.org/) for the underlying infrastructure
+- [Ethereum Foundation](https://ethereum.org/) for Ethereum support
+- [Next.js](https://nextjs.org/) for the frontend framework
+- [Supabase](https://supabase.com/) for database services
+
+*Built with ❤️ for the Push Protocol ecosystem and the decentralized web.*
