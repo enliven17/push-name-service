@@ -309,8 +309,7 @@ export const DomainTransfer: React.FC<DomainTransferProps> = ({
   const [isTransferring, setIsTransferring] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
-  const [transferType, setTransferType] = useState<'cross-chain'>('cross-chain'); // Default to cross-chain for Push
-  const [targetChainId, setTargetChainId] = useState<number | string>(11155111); // Ethereum Sepolia default
+
   const [domainInfo, setDomainInfo] = useState<any>(null);
   const [isLoadingDomainInfo, setIsLoadingDomainInfo] = useState(false);
 
@@ -384,30 +383,20 @@ export const DomainTransfer: React.FC<DomainTransferProps> = ({
       
       const domainName = domain.name.replace('.push', '');
       
-      console.log('🌐 Initiating Push Protocol cross-chain transfer...');
+      console.log('📤 Initiating domain transfer with Universal Signer...');
       console.log('- Domain:', domainName);
       console.log('- From:', signerAddress);
       console.log('- To:', toAddress);
-      console.log('- Target chain:', targetChainId);
+      console.log('- Network: Push Chain Donut');
       
-      // Map chain ID for contract call (use numeric IDs for now)
-      const contractChainId = targetChainId === 'solana-devnet' ? 999999 : Number(targetChainId); // Temporary mapping
-      
-      // Get transfer cost
-      const transferCost = await contract.getTransferFee(contractChainId);
-      const universalTxFee = ethers.parseEther('0.001'); // Universal TX fee
-      const totalCost = transferCost + universalTxFee;
-      
-      console.log('💰 Transfer cost:', ethers.formatEther(totalCost), 'PC');
-      
-      // Execute cross-chain transfer
-      const tx = await contract.crossChainTransfer(domainName, toAddress, contractChainId, totalCost);
+      // Execute simple transfer on Push Chain
+      const tx = await contract.transferDomain(domainName, toAddress);
       
       console.log('📤 Transaction sent:', tx.hash);
       
       // Wait for confirmation
       const receipt = await tx.wait();
-      console.log('✅ Cross-chain transfer initiated:', receipt.hash);
+      console.log('✅ Domain transfer completed:', receipt.hash);
 
       // Update database
       if (!address) throw new Error('Sender address is missing');
@@ -434,9 +423,7 @@ export const DomainTransfer: React.FC<DomainTransferProps> = ({
         console.error('⚠️ Failed to update marketplace listing:', error);
       }
 
-      const targetChainName = targetChainId === 'solana-devnet' ? 'Solana Devnet' : 
-                              targetChainId === 11155111 ? 'Ethereum Sepolia' : 'target chain';
-      const successMsg = `🎉 Universal cross-chain transfer initiated!\n\nThe domain will be burned on Push Chain and minted on ${targetChainName} in 2-5 minutes.\n\nTransaction: ${tx.hash}`;
+      const successMsg = `🎉 Domain transfer completed!\n\nThe domain has been successfully transferred to ${formatAddress(toAddress)} on Push Chain.\n\nTransaction: ${tx.hash}`;
         
       setSuccessMessage(successMsg);
       
@@ -447,7 +434,7 @@ export const DomainTransfer: React.FC<DomainTransferProps> = ({
       }, 4000);
 
     } catch (error: any) {
-      console.error('❌ Push Protocol transfer failed:', error);
+      console.error('❌ Domain transfer failed:', error);
       
       let errorMessage = 'Transfer failed. Please try again.';
       
@@ -480,9 +467,9 @@ export const DomainTransfer: React.FC<DomainTransferProps> = ({
       <TransferContent onClick={(e: React.MouseEvent) => e.stopPropagation()}>
         <CloseButton onClick={onClose}>×</CloseButton>
         
-        <TransferTitle>🌐 Universal Domain Transfer</TransferTitle>
+        <TransferTitle>📤 Domain Transfer</TransferTitle>
         <TransferSubtitle>
-          Transfer your .push domain to another blockchain using Push Protocol
+          Transfer your .push domain to another wallet using Universal Signer
         </TransferSubtitle>
 
         <DomainInfo>
@@ -524,66 +511,29 @@ export const DomainTransfer: React.FC<DomainTransferProps> = ({
                 </TransferInfo>
               )}
 
-              {/* Chain Selector - All Push domains are universal */}
+              {/* Transfer Info - Universal Signer */}
               {domainInfo && (
-                <>
-                  <ChainSelector>
-                    <Label>🎯 Select Target Blockchain</Label>
-                    <div style={{ fontSize: '0.9rem', color: 'rgba(255, 255, 255, 0.7)', marginBottom: '12px' }}>
-                      Choose which blockchain to transfer your domain to:
-                    </div>
-                    <ChainGrid>
-                      {[
-                        { id: 11155111, name: 'Ethereum Sepolia', shortName: 'ETH', icon: '🔷' },
-                        { id: 'solana-devnet', name: 'Solana Devnet', shortName: 'SOL', icon: '🟢' }
-                      ].map((chain) => (
-                        <ChainOption
-                          key={chain.id}
-                          $active={targetChainId === chain.id}
-                          onClick={() => setTargetChainId(chain.id)}
-                        >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <span>{chain.icon}</span>
-                            <span>{chain.name}</span>
-                          </div>
-                        </ChainOption>
-                      ))}
-                    </ChainGrid>
-                  </ChainSelector>
-
-                  <CrossChainInfo>
-                    <div style={{ fontSize: '0.9rem', fontWeight: '600', marginBottom: '12px', color: '#00d2ff' }}>
-                      🌐 Universal Transfer Details
-                    </div>
-                    <InfoRow>
-                      <InfoLabel>⏱️ Estimated Time:</InfoLabel>
-                      <InfoValue>2-5 minutes</InfoValue>
-                    </InfoRow>
-                    <InfoRow>
-                      <InfoLabel>💰 Transfer Fee:</InfoLabel>
-                      <InfoValue>0.0001 PC</InfoValue>
-                    </InfoRow>
-                    <InfoRow>
-                      <InfoLabel>⚡ Universal TX Fee:</InfoLabel>
-                      <InfoValue>0.001 PC</InfoValue>
-                    </InfoRow>
-                    <InfoRow>
-                      <InfoLabel>💸 Total Cost:</InfoLabel>
-                      <InfoValue style={{ fontWeight: 'bold' }}>0.0011 PC</InfoValue>
-                    </InfoRow>
-                    <InfoRow>
-                      <InfoLabel>🌐 Route:</InfoLabel>
-                      <InfoValue>
-                        🍩 Push Chain → {
-                          [
-                            { id: 11155111, name: '🔷 Ethereum Sepolia' },
-                            { id: 'solana-devnet', name: '🟢 Solana Devnet' }
-                          ].find(c => c.id === targetChainId)?.name || 'Target Chain'
-                        }
-                      </InfoValue>
-                    </InfoRow>
-                  </CrossChainInfo>
-                </>
+                <TransferInfo>
+                  <div style={{ fontSize: '0.9rem', fontWeight: '600', marginBottom: '12px', color: '#22c55e' }}>
+                    📤 Universal Transfer Details
+                  </div>
+                  <InfoRow>
+                    <InfoLabel>🏠 Network:</InfoLabel>
+                    <InfoValue>Push Chain Donut</InfoValue>
+                  </InfoRow>
+                  <InfoRow>
+                    <InfoLabel>⚡ Signing Method:</InfoLabel>
+                    <InfoValue>Universal Signer</InfoValue>
+                  </InfoRow>
+                  <InfoRow>
+                    <InfoLabel>💰 Transfer Fee:</InfoLabel>
+                    <InfoValue>0.0001 PC</InfoValue>
+                  </InfoRow>
+                  <InfoRow>
+                    <InfoLabel>⏱️ Estimated Time:</InfoLabel>
+                    <InfoValue>~30 seconds</InfoValue>
+                  </InfoRow>
+                </TransferInfo>
               )}
 
               {/* Recipient Address - All Push domains are universal */}
@@ -592,7 +542,7 @@ export const DomainTransfer: React.FC<DomainTransferProps> = ({
                   <InputGroup>
                     <Label>📍 Recipient Wallet Address</Label>
                     <div style={{ fontSize: '0.85rem', color: 'rgba(255, 255, 255, 0.7)', marginBottom: '8px' }}>
-                      Enter the wallet address that will receive the domain on the target blockchain:
+                      Enter the wallet address that will receive the domain on Push Chain:
                     </div>
                     <AddressInput
                       type="text"
@@ -613,10 +563,10 @@ export const DomainTransfer: React.FC<DomainTransferProps> = ({
                       !validateAddress(toAddress)
                     }
                   >
-                    <FaGlobe />
+                    <FaPaperPlane />
                     {isTransferring 
-                      ? '🌐 Initiating Universal Transfer...'
-                      : '🚀 Start Universal Transfer'
+                      ? '📤 Processing Transfer...'
+                      : '📤 Transfer Domain'
                     }
                   </TransferButton>
                 </>

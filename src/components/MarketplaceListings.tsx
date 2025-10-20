@@ -137,7 +137,7 @@ const DomainName = styled.h3`
   overflow: hidden;
 `;
 
-const OmnichainBadge = styled.div`
+const UniversalBadge = styled.div`
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -149,9 +149,9 @@ const OmnichainBadge = styled.div`
   color: white;
   border: 1px solid rgba(0, 210, 255, 0.3);
   box-shadow: 0 2px 6px rgba(0, 210, 255, 0.2);
-  animation: omnichainGlow 2s ease-in-out infinite alternate;
+  animation: universalGlow 2s ease-in-out infinite alternate;
   
-  @keyframes omnichainGlow {
+  @keyframes universalGlow {
     from {
       box-shadow: 0 2px 6px rgba(0, 210, 255, 0.2);
     }
@@ -486,10 +486,10 @@ export function MarketplaceListings({ onBuyDomain, onMakeOffer }: MarketplaceLis
                                               const domainInfo = domainInfoCache[`${listing.domain.name}.push`];
                                               if (domainInfo?.isOmnichain) {
                                                 return (
-                                                  <OmnichainBadge>
+                                                  <UniversalBadge>
                                                     <FaGlobe size={8} />
-                                                    Omnichain
-                                                  </OmnichainBadge>
+                                                    Universal
+                                                  </UniversalBadge>
                                                 );
                                               } else if (domainInfo?.sourceChainId) {
                                                 const chainConfig = getChainConfig(domainInfo.sourceChainId);

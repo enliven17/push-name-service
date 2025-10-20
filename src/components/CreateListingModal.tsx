@@ -128,9 +128,9 @@ export default function CreateListingModal({ domain, sellerAddress, onClose, onL
   useEffect(() => {
     setIsLoadingDomainInfo(true);
     
-    // All Push domains are universal/omnichain by default
+    // All Push domains are universal by default
     setDomainInfo({
-      isOmnichain: true, // All Push domains support cross-chain trading
+      isOmnichain: true, // All Push domains support universal trading
       owner: domain.owner_address,
       expiresAt: domain.expiration_date ? new Date(domain.expiration_date).getTime() / 1000 : 0
     });
@@ -209,27 +209,17 @@ export default function CreateListingModal({ domain, sellerAddress, onClose, onL
         return;
       }
       
-      // List domain on Push Chain marketplace
-      const marketplaceContract = new ethers.Contract(
-        contractAddress, // Same contract handles marketplace
-        [
-          'function listDomain(string calldata name, uint256 price) external'
-        ],
-        signer
-      );
-      
       console.log('📋 Listing domain for price:', ethers.formatEther(priceWei), 'PC');
+      console.log('📤 Using Universal Signer for listing...');
       
-      // List domain (no fee required)
-      const listTx = await marketplaceContract.listDomain(name, priceWei, {
-        gasLimit: 300000
-      });
+      // Use universal signer for listing
+      const { universalSigner } = await import('@/lib/universalSigner');
       
-      console.log('📤 Listing transaction sent:', listTx.hash);
-      const listReceipt = await listTx.wait();
-      console.log('✅ Domain listed successfully:', listReceipt.hash);
+      const result = await universalSigner.listDomain(name, priceWei.toString());
       
-      const txHash = listReceipt.hash;
+      console.log('✅ Domain listed successfully:', result.txHash);
+      
+      const txHash = result.txHash;
 
       await marketplaceCreate(domain.id, sellerAddress, price, txHash, allowCrossChain);
       onListed();

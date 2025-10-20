@@ -186,11 +186,11 @@ export default function CrossChainTransferDebug({ isOpen, onClose, domainName, c
       
       setDomainInfo(info)
       
-      // Check if domain is omnichain
+      // Check if domain is universal
       if (info.isOmnichain) {
-        addDebugLog('✅ Domain is configured for omnichain (cross-chain enabled)')
+        addDebugLog('✅ Domain is configured as universal (cross-chain enabled)')
       } else {
-        addDebugLog('❌ Domain is NOT configured for omnichain (cross-chain disabled)')
+        addDebugLog('❌ Domain is NOT configured as universal (cross-chain disabled)')
       }
       
       // Check cross-chain transfer eligibility
@@ -202,7 +202,7 @@ export default function CrossChainTransferDebug({ isOpen, onClose, domainName, c
         addDebugLog('✅ Domain is eligible for cross-chain transfer')
       } else {
         addDebugLog('❌ Domain is NOT eligible for cross-chain transfer')
-        if (!info.isOmnichain) addDebugLog('   - Reason: Domain is not omnichain enabled')
+        if (!info.isOmnichain) addDebugLog('   - Reason: Domain is not universal enabled')
         if (info.owner === "0x0000000000000000000000000000000000000000") addDebugLog('   - Reason: Domain has no owner')
         if (info.isExpired) addDebugLog('   - Reason: Domain has expired')
       }
@@ -293,7 +293,7 @@ export default function CrossChainTransferDebug({ isOpen, onClose, domainName, c
           <WarningMessage>
             <FiInfo />
             <div>
-              This domain is not configured for omnichain transfers. 
+              This domain is not configured for universal transfers. 
               You can only transfer it within the current network.
             </div>
           </WarningMessage>
@@ -303,7 +303,7 @@ export default function CrossChainTransferDebug({ isOpen, onClose, domainName, c
           <SuccessMessage>
             <FiInfo />
             <div>
-              This domain is configured for omnichain transfers. 
+              This domain is configured for universal transfers. 
               You can transfer it across multiple blockchains.
             </div>
           </SuccessMessage>

@@ -497,6 +497,126 @@ export class UniversalSignerService {
   }
 
   /**
+   * List domain on marketplace using Universal Signer
+   */
+  async listDomain(domainName: string, priceWei: string): Promise<{ txHash: string }> {
+    try {
+      console.log('📋 Listing domain with Universal Signer...');
+      console.log('- Domain:', domainName);
+      console.log('- Price:', ethers.formatEther(priceWei), 'PC');
+      
+      // Initialize Push Chain client if needed
+      const pushChainClient = await this.initializePushChainClient();
+      
+      const nameServiceAddress = process.env.NEXT_PUBLIC_PUSH_CHAIN_NAME_SERVICE_ADDRESS;
+      if (!nameServiceAddress) {
+        throw new Error('Push Chain Name Service address not configured');
+      }
+      
+      // Prepare transaction data for listing
+      const nameServiceABI = [
+        'function listDomain(string memory name, uint256 price) external'
+      ];
+      
+      const contract = new ethers.Contract(
+        nameServiceAddress,
+        nameServiceABI,
+        this.pushChainProvider
+      );
+      
+      const txData = contract.interface.encodeFunctionData('listDomain', [
+        domainName,
+        priceWei
+      ]);
+      
+      // Send Universal Transaction
+      console.log('📤 Sending Universal Transaction for listing...');
+      const tx = await pushChainClient.universal.sendTransaction({
+        to: nameServiceAddress,
+        data: txData,
+        value: '0', // No fee for listing
+        gasLimit: 300000
+      });
+      
+      const txHash = tx.hash || tx.transactionHash || 'pending';
+      console.log('✅ Domain listing transaction sent:', txHash);
+      
+      // Wait for confirmation if possible
+      if (tx.wait) {
+        const receipt = await tx.wait();
+        console.log('✅ Domain listing confirmed:', receipt.hash || receipt.transactionHash);
+        return { txHash: receipt.hash || receipt.transactionHash || txHash };
+      }
+      
+      return { txHash };
+      
+    } catch (error) {
+      console.error('❌ Domain listing failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Transfer domain using Universal Signer
+   */
+  async transferDomain(domainName: string, toAddress: string): Promise<{ txHash: string }> {
+    try {
+      console.log('📤 Transferring domain with Universal Signer...');
+      console.log('- Domain:', domainName);
+      console.log('- To:', toAddress);
+      
+      // Initialize Push Chain client if needed
+      const pushChainClient = await this.initializePushChainClient();
+      
+      const nameServiceAddress = process.env.NEXT_PUBLIC_PUSH_CHAIN_NAME_SERVICE_ADDRESS;
+      if (!nameServiceAddress) {
+        throw new Error('Push Chain Name Service address not configured');
+      }
+      
+      // Prepare transaction data for transfer
+      const nameServiceABI = [
+        'function transfer(string memory name, address to) external'
+      ];
+      
+      const contract = new ethers.Contract(
+        nameServiceAddress,
+        nameServiceABI,
+        this.pushChainProvider
+      );
+      
+      const txData = contract.interface.encodeFunctionData('transfer', [
+        domainName,
+        toAddress
+      ]);
+      
+      // Send Universal Transaction
+      console.log('📤 Sending Universal Transaction for transfer...');
+      const tx = await pushChainClient.universal.sendTransaction({
+        to: nameServiceAddress,
+        data: txData,
+        value: '0', // No fee for transfer
+        gasLimit: 300000
+      });
+      
+      const txHash = tx.hash || tx.transactionHash || 'pending';
+      console.log('✅ Domain transfer transaction sent:', txHash);
+      
+      // Wait for confirmation if possible
+      if (tx.wait) {
+        const receipt = await tx.wait();
+        console.log('✅ Domain transfer confirmed:', receipt.hash || receipt.transactionHash);
+        return { txHash: receipt.hash || receipt.transactionHash || txHash };
+      }
+      
+      return { txHash };
+      
+    } catch (error) {
+      console.error('❌ Domain transfer failed:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Estimate gas cost for Universal Transaction
    */
   async estimateUniversalTransactionCost(): Promise<{ gasCost: string; registrationCost: string; total: string }> {

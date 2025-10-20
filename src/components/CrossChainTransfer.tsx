@@ -1,12 +1,10 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState } from 'react'
 import styled from 'styled-components'
-import { FiArrowRight, FiX, FiInfo, FiClock, FiDollarSign } from 'react-icons/fi'
+import { FiX } from 'react-icons/fi'
 import { ethers } from 'ethers'
-import { useAccount, useChainId } from 'wagmi'
-import { supportedChains, getChainConfig, getCrossChainRoute, isCrossChainSupported } from '../config/chains'
-import { createOmnichainNameService } from '../lib/omnichainContract'
+import { useAccount } from 'wagmi'
 
 const Modal = styled.div`
   position: fixed;
@@ -48,249 +46,119 @@ const Title = styled.h2`
   font-size: 24px;
   font-weight: bold;
   margin: 0;
-  background: linear-gradient(135deg, #22c55e, #065f46);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
 `
 
 const CloseButton = styled.button`
-  background: none;
+  background: rgba(255, 255, 255, 0.1);
   border: none;
-  color: white;
-  font-size: 24px;
-  cursor: pointer;
-  padding: 5px;
   border-radius: 50%;
-  transition: all 0.2s ease;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  cursor: pointer;
+  transition: background 0.2s;
 
   &:hover {
-    background: rgba(255, 255, 255, 0.1);
-    transform: scale(1.1);
+    background: rgba(255, 255, 255, 0.2);
   }
 `
 
 const Section = styled.div`
-  margin-bottom: 25px;
+  margin-bottom: 20px;
 `
 
 const Label = styled.label`
   display: block;
   color: white;
+  font-size: 14px;
   font-weight: 600;
   margin-bottom: 8px;
-  font-size: 14px;
 `
 
 const Input = styled.input`
   width: 100%;
   padding: 12px 16px;
   background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 2px solid rgba(255, 255, 255, 0.2);
   border-radius: 12px;
   color: white;
   font-size: 16px;
-  transition: all 0.2s ease;
+  outline: none;
+  transition: all 0.3s ease;
+  box-sizing: border-box;
 
   &:focus {
-    outline: none;
-    border-color: #22c55e;
-    box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.1);
+    border-color: #00d2ff;
+    background: rgba(255, 255, 255, 0.15);
   }
 
   &::placeholder {
     color: rgba(255, 255, 255, 0.5);
   }
-`
 
-const ChainSelector = styled.div`
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  gap: 15px;
-  align-items: center;
-  margin-bottom: 20px;
-`
-
-const ChainOption = styled.div<{ selected?: boolean; disabled?: boolean }>`
-  padding: 15px;
-  background: ${props => props.selected ? 'rgba(34, 197, 94, 0.2)' : 'rgba(255, 255, 255, 0.1)'};
-  border: 1px solid ${props => props.selected ? '#22c55e' : 'rgba(255, 255, 255, 0.2)'};
-  border-radius: 12px;
-  cursor: ${props => props.disabled ? 'not-allowed' : 'pointer'};
-  transition: all 0.2s ease;
-  opacity: ${props => props.disabled ? 0.5 : 1};
-
-  &:hover {
-    ${props => !props.disabled && !props.selected && `
-      background: rgba(255, 255, 255, 0.15);
-      border-color: rgba(255, 255, 255, 0.3);
-    `}
+  &:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
   }
 `
 
-const ChainName = styled.div`
+const Button = styled.button`
+  width: 100%;
+  padding: 16px;
+  background: linear-gradient(135deg, #22c55e 0%, #065f46 100%);
+  border: none;
+  border-radius: 12px;
   color: white;
+  font-size: 16px;
   font-weight: 600;
-  font-size: 14px;
-  margin-bottom: 4px;
-`
-
-const ChainId = styled.div`
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 12px;
-`
-
-const ArrowIcon = styled.div`
-  color: #22c55e;
-  font-size: 24px;
+  cursor: pointer;
+  transition: all 0.3s ease;
   display: flex;
   align-items: center;
   justify-content: center;
-`
+  gap: 8px;
 
-const RouteInfo = styled.div`
-  background: rgba(34, 197, 94, 0.1);
-  border: 1px solid rgba(34, 197, 94, 0.3);
-  border-radius: 12px;
-  padding: 15px;
-  margin-bottom: 20px;
-`
-
-const RouteItem = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: white;
-  font-size: 14px;
-  margin-bottom: 8px;
-
-  &:last-child {
-    margin-bottom: 0;
+  &:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(34, 197, 94, 0.4);
   }
-`
 
-const RouteSteps = styled.div`
-  margin-top: 10px;
-`
-
-const Step = styled.div`
-  color: rgba(255, 255, 255, 0.8);
-  font-size: 12px;
-  margin-bottom: 4px;
-  padding-left: 20px;
-  position: relative;
-
-  &:before {
-    content: '•';
-    position: absolute;
-    left: 8px;
-    color: #22c55e;
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+    background: rgba(255, 255, 255, 0.2);
   }
-`
-
-const Button = styled.button<{ variant?: 'primary' | 'secondary'; disabled?: boolean }>`
-  width: 100%;
-  padding: 14px 20px;
-  border: none;
-  border-radius: 12px;
-  font-size: 16px;
-  font-weight: 600;
-  cursor: ${props => props.disabled ? 'not-allowed' : 'pointer'};
-  transition: all 0.2s ease;
-  opacity: ${props => props.disabled ? 0.5 : 1};
-  
-  ${props => props.variant === 'secondary' ? `
-    background: rgba(255, 255, 255, 0.1);
-    color: white;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    
-    &:hover {
-      background: rgba(255, 255, 255, 0.15);
-    }
-  ` : `
-    background: linear-gradient(135deg, #22c55e, #065f46);
-    color: white;
-    
-    &:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 10px 25px rgba(34, 197, 94, 0.3);
-    }
-  `}
 `
 
 const ErrorMessage = styled.div`
   background: rgba(239, 68, 68, 0.1);
   border: 1px solid rgba(239, 68, 68, 0.3);
-  border-radius: 8px;
-  padding: 12px;
-  color: #fca5a5;
+  border-radius: 12px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  color: #ef4444;
   font-size: 14px;
-  margin-bottom: 15px;
-`
-
-const WarningMessage = styled.div`
-  background: rgba(245, 158, 11, 0.1);
-  border: 1px solid rgba(245, 158, 11, 0.3);
-  border-radius: 8px;
-  padding: 12px;
-  color: #fcd34d;
-  font-size: 14px;
-  margin-bottom: 15px;
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
+  text-align: center;
 `
 
 interface CrossChainTransferProps {
-  isOpen: boolean
-  onClose: () => void
   domainName: string
   currentOwner: string
+  isOpen: boolean
+  onClose: () => void
 }
 
 export default function CrossChainTransfer({ isOpen, onClose, domainName, currentOwner }: CrossChainTransferProps) {
   const { address } = useAccount()
-  const chainId = useChainId()
 
   const [recipientAddress, setRecipientAddress] = useState('')
-  const [sourceChainId, setSourceChainId] = useState<number>(chainId || 421614)
-  const [targetChainId, setTargetChainId] = useState<number>(7001)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
-  const [domainInfo, setDomainInfo] = useState<any>(null)
-  const [isAddressLoading, setIsAddressLoading] = useState(true)
-
-  useEffect(() => {
-    if (chainId) {
-      setSourceChainId(chainId)
-    }
-  }, [chainId])
-
-  useEffect(() => {
-    if (address) {
-      setIsAddressLoading(false)
-    } else {
-      setIsAddressLoading(true)
-    }
-  }, [address])
-
-  useEffect(() => {
-    if (isOpen && domainName) {
-      loadDomainInfo()
-    }
-  }, [isOpen, domainName, sourceChainId])
-
-  const loadDomainInfo = async () => {
-    try {
-      if (!window.ethereum) return
-      
-      const provider = new ethers.BrowserProvider(window.ethereum)
-      const nameService = createOmnichainNameService(provider, sourceChainId)
-      const info = await nameService.getDomainInfo(domainName)
-      setDomainInfo(info)
-    } catch (error) {
-      console.error('Failed to load domain info:', error)
-    }
-  }
+  const [success, setSuccess] = useState('')
 
   const handleTransfer = async () => {
     if (!address || !recipientAddress || !domainName) {
@@ -300,6 +168,7 @@ export default function CrossChainTransfer({ isOpen, onClose, domainName, curren
 
     setIsLoading(true)
     setError('')
+    setSuccess('')
 
     try {
       // Validate recipient address
@@ -307,43 +176,53 @@ export default function CrossChainTransfer({ isOpen, onClose, domainName, curren
         throw new Error('Invalid recipient address')
       }
 
-      // Check if cross-chain transfer is supported
-      if (!isCrossChainSupported(sourceChainId, targetChainId)) {
-        throw new Error(`Cross-chain transfer not supported: ${sourceChainId} -> ${targetChainId}`)
+      if (recipientAddress.toLowerCase() === address.toLowerCase()) {
+        throw new Error('Cannot transfer to your own address')
       }
 
-      // Check if we're on the correct chain
-      if (chainId !== sourceChainId) {
-        throw new Error(`Please switch to chain ${sourceChainId} to perform this transfer`)
-      }
+      console.log('📤 Initiating domain transfer with Universal Signer...')
+      console.log('- Domain:', domainName)
+      console.log('- From:', address)
+      console.log('- To:', recipientAddress)
 
-      const provider = new ethers.BrowserProvider(window.ethereum)
-      const signer = await provider.getSigner()
-      const nameService = createOmnichainNameService(provider, sourceChainId, signer)
-
-      // Perform cross-chain transfer with fee
-      const transferFee = ethers.parseEther("0.0001") // 0.0001 ETH transfer fee
-      const tx = await nameService.crossChainTransfer(domainName, recipientAddress, targetChainId)
+      // Import universal signer
+      const { universalSigner } = await import('@/lib/universalSigner')
       
-      console.log('Cross-chain transfer initiated:', tx.hash)
+      // Execute transfer using universal signer
+      const result = await universalSigner.transferDomain(
+        domainName.replace('.push', ''),
+        recipientAddress
+      )
       
-      // Wait for confirmation
-      await tx.wait()
+      console.log('✅ Domain transfer completed:', result.txHash)
       
-      console.log('Cross-chain transfer confirmed')
-      onClose()
+      setSuccess(`🎉 Domain transfer completed!\n\nTransaction: ${result.txHash}`)
+      
+      // Close modal after success
+      setTimeout(() => {
+        onClose()
+      }, 3000)
       
     } catch (error: any) {
-      console.error('Cross-chain transfer failed:', error)
-      setError(error.message || 'Transfer failed')
+      console.error('❌ Domain transfer failed:', error)
+      
+      let errorMessage = 'Transfer failed. Please try again.'
+      
+      if (error.code === 'ACTION_REJECTED') {
+        errorMessage = 'Transaction was rejected by user.'
+      } else if (error.code === 'INSUFFICIENT_FUNDS') {
+        errorMessage = 'Insufficient funds for transfer and gas fees.'
+      } else if (error.reason) {
+        errorMessage = `Transfer failed: ${error.reason}`
+      } else if (error.message) {
+        errorMessage = error.message
+      }
+      
+      setError(errorMessage)
     } finally {
       setIsLoading(false)
     }
   }
-
-  const route = getCrossChainRoute(sourceChainId, targetChainId)
-  const sourceChainConfig = getChainConfig(sourceChainId)
-  const targetChainConfig = getChainConfig(targetChainId)
 
   if (!isOpen) return null
 
@@ -351,21 +230,11 @@ export default function CrossChainTransfer({ isOpen, onClose, domainName, curren
     <Modal onClick={(e) => e.target === e.currentTarget && onClose()}>
       <ModalContent>
         <Header>
-          <Title>Cross-Chain Transfer</Title>
+          <Title>📤 Domain Transfer</Title>
           <CloseButton onClick={onClose}>
             <FiX />
           </CloseButton>
         </Header>
-
-        {domainInfo && !domainInfo.isOmnichain && (
-          <WarningMessage>
-            <FiInfo />
-            <div>
-              This domain is not configured for omnichain transfers. 
-              You can only transfer it within the current network.
-            </div>
-          </WarningMessage>
-        )}
 
         <Section>
           <Label>Domain Name</Label>
@@ -377,77 +246,47 @@ export default function CrossChainTransfer({ isOpen, onClose, domainName, curren
         </Section>
 
         <Section>
-          <Label>Recipient Address</Label>
+          <Label>📍 Recipient Address</Label>
+          <div style={{ fontSize: '0.85rem', color: 'rgba(255, 255, 255, 0.7)', marginBottom: '8px' }}>
+            Enter the wallet address that will receive the domain on Push Chain:
+          </div>
           <Input
             type="text"
-            placeholder="0x..."
+            placeholder="0x1234567890123456789012345678901234567890"
             value={recipientAddress}
             onChange={(e) => setRecipientAddress(e.target.value)}
           />
         </Section>
 
         <Section>
-          <Label>Transfer Route</Label>
-          <ChainSelector>
-            <div>
-              <Label style={{ marginBottom: '8px' }}>From</Label>
-              {supportedChains.map((chain) => (
-                <ChainOption
-                  key={chain.id}
-                  selected={sourceChainId === chain.id}
-                  disabled={chain.id !== sourceChainId}
-                  onClick={() => chain.id === sourceChainId && setSourceChainId(chain.id)}
-                >
-                  <ChainName>{chain.name}</ChainName>
-                  <ChainId>Chain ID: {chain.id}</ChainId>
-                </ChainOption>
-              ))}
+          <div style={{ 
+            background: 'rgba(34, 197, 94, 0.1)', 
+            border: '1px solid rgba(34, 197, 94, 0.3)', 
+            borderRadius: '12px', 
+            padding: '16px',
+            marginBottom: '16px'
+          }}>
+            <div style={{ fontSize: '0.9rem', fontWeight: '600', marginBottom: '12px', color: '#22c55e' }}>
+              📤 Universal Transfer Details
             </div>
-
-            <ArrowIcon>
-              <FiArrowRight />
-            </ArrowIcon>
-
-            <div>
-              <Label style={{ marginBottom: '8px' }}>To</Label>
-              {supportedChains.map((chain) => (
-                <ChainOption
-                  key={chain.id}
-                  selected={targetChainId === chain.id}
-                  disabled={chain.id === sourceChainId || !isCrossChainSupported(sourceChainId, chain.id)}
-                  onClick={() => {
-                    if (chain.id !== sourceChainId && isCrossChainSupported(sourceChainId, chain.id)) {
-                      setTargetChainId(chain.id)
-                    }
-                  }}
-                >
-                  <ChainName>{chain.name}</ChainName>
-                  <ChainId>Chain ID: {chain.id}</ChainId>
-                </ChainOption>
-              ))}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', fontSize: '0.9rem' }}>
+              <span style={{ color: 'rgba(255, 255, 255, 0.7)' }}>🏠 Network:</span>
+              <span style={{ color: '#00d2ff', fontWeight: '600' }}>Push Chain Donut</span>
             </div>
-          </ChainSelector>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', fontSize: '0.9rem' }}>
+              <span style={{ color: 'rgba(255, 255, 255, 0.7)' }}>⚡ Signing Method:</span>
+              <span style={{ color: '#00d2ff', fontWeight: '600' }}>Universal Signer</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', fontSize: '0.9rem' }}>
+              <span style={{ color: 'rgba(255, 255, 255, 0.7)' }}>💰 Transfer Fee:</span>
+              <span style={{ color: '#00d2ff', fontWeight: '600' }}>0.0001 PC</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.9rem' }}>
+              <span style={{ color: 'rgba(255, 255, 255, 0.7)' }}>⏱️ Estimated Time:</span>
+              <span style={{ color: '#00d2ff', fontWeight: '600' }}>~30 seconds</span>
+            </div>
+          </div>
         </Section>
-
-        {route && (
-          <Section>
-            <RouteInfo>
-              <RouteItem>
-                <FiClock />
-                <span>Estimated Time: {route.estimatedTime}</span>
-              </RouteItem>
-              <RouteItem>
-                <FiDollarSign />
-                <span>Transfer Fee: {route.fee}</span>
-              </RouteItem>
-              <RouteSteps>
-                {route.steps.map((step, index) => (
-                  <Step key={index}>{step}</Step>
-                ))}
-              </RouteSteps>
-            </RouteInfo>
-          </Section>
-        )}
 
         {error && (
           <ErrorMessage>
@@ -455,36 +294,33 @@ export default function CrossChainTransfer({ isOpen, onClose, domainName, curren
           </ErrorMessage>
         )}
 
+        {success && (
+          <div style={{
+            background: 'rgba(34, 197, 94, 0.1)',
+            border: '1px solid rgba(34, 197, 94, 0.3)',
+            borderRadius: '12px',
+            padding: '12px 16px',
+            marginBottom: '16px',
+            color: '#22c55e',
+            fontSize: '0.9rem',
+            textAlign: 'center',
+            whiteSpace: 'pre-line'
+          }}>
+            {success}
+          </div>
+        )}
+
         <Button
           onClick={handleTransfer}
           disabled={
             isLoading || 
-            isAddressLoading ||
             !address ||
             !recipientAddress || 
-            !ethers.isAddress(recipientAddress) ||
-            !route ||
-            (domainInfo && !domainInfo.isOmnichain && sourceChainId !== targetChainId)
+            !ethers.isAddress(recipientAddress)
           }
         >
-          {isLoading ? 'Processing Transfer...' : 
-           isAddressLoading ? 'Loading Address...' : 
-           !address ? 'Connect Wallet First' :
-           'Initiate Cross-Chain Transfer'}
+          {isLoading ? '📤 Processing Transfer...' : '📤 Transfer Domain'}
         </Button>
-
-        {sourceChainId === targetChainId && (
-          <Button
-            variant="secondary"
-            onClick={() => {
-              // Handle same-chain transfer
-              console.log('Same-chain transfer')
-            }}
-            style={{ marginTop: '10px' }}
-          >
-            Transfer on Same Chain
-          </Button>
-        )}
       </ModalContent>
     </Modal>
   )
