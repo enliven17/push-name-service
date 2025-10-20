@@ -147,6 +147,9 @@ export default function PushNameService() {
       
       // Wait for transaction confirmation
       const receipt = await tx.wait()
+      if (!receipt) {
+        throw new Error('Transaction receipt not available')
+      }
       console.log('✅ Transaction confirmed:', receipt.hash)
       
       // Save to database after successful blockchain transaction

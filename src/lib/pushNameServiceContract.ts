@@ -173,7 +173,7 @@ export class PushNameServiceContract {
       // Send transaction with estimated gas + 20% buffer
       const tx = await this.contract.register(name, makeUniversal, { 
         value,
-        gasLimit: gasEstimate * 120n / 100n // 20% buffer
+        gasLimit: gasEstimate * BigInt(120) / BigInt(100) // 20% buffer
       });
       
       console.log('📤 Registration transaction sent:', tx.hash);

@@ -59,7 +59,7 @@ export class UniversalSignerService {
       
       // Initialize Push Chain client
       const pushChainClient = await PushChain.initialize(this.universalSigner, {
-        env: 'staging' // Use staging for testnet
+        network: 'TESTNET_DONUT' as any // Use testnet for staging
       });
       
       console.log('✅ Push Chain client initialized');
@@ -364,7 +364,7 @@ export class UniversalSignerService {
       // Mark as failed on EthBridge if we have requestId
       if (requestId) {
         try {
-          await this.failEthBridgeRegistration(requestId, error.message);
+          await this.failEthBridgeRegistration(requestId, (error as Error).message || 'Unknown error');
         } catch (completeError) {
           console.error('❌ Failed to mark EthBridge registration as failed:', completeError);
         }
