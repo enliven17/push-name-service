@@ -190,6 +190,8 @@ export class PushDomainService {
         .select('*')
         .eq('id', data)
         .single()
+      
+      console.log('📋 Registered domain data:', domain)
 
       if (fetchError) {
         console.error('Error fetching registered domain:', fetchError)

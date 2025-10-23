@@ -1322,8 +1322,17 @@ export default function Home() {
     return `${address.slice(0, 6)}...${address.slice(-6)}`;
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US');
+  const formatDate = (dateString: string | null | undefined) => {
+    if (!dateString) return 'N/A';
+    
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return 'Invalid Date';
+    
+    return date.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
   };
 
   // Check if domain is currently listed in marketplace
